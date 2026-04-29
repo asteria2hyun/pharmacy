@@ -701,22 +701,24 @@ async function addScan(rawBarcode, m) {
   // 시트에서 여러 바코드 형식으로 검색
   // 캐시에서 먼저 찾기
   for (const v of variants) {
-    const cached = allSheetProducts.find(p => p.barcode === v);
-    if (cached && cached.name) {
-      name = cached.name;
+    const cachedAll = allSheetProducts.filter(p => p.barcode === v);
+    if (cachedAll.length > 0 && cachedAll[0].name) {
+      name = cachedAll[0].name;
       source = 'sheet';
       foundBarcode = v;
-      const u = parseUnit(cached.unitLabel || '묶음');
-      unitRows = [{
-        rowIndex: cached.rowIndex || null,
-        unitLabel: cached.unitLabel || '묶음',
-        display: u.display,
-        qty: 0,
-        unitQty: u.qty,
-        stockBox: cached.stockBox || 0,
-        stockUnit: cached.stockUnit || 0
-      }];
-      memo = cached.memo || '';
+      unitRows = cachedAll.map(cached => {
+        const u = parseUnit(cached.unitLabel || '묶음');
+        return {
+          rowIndex: cached.rowIndex || null,
+          unitLabel: cached.unitLabel || '묶음',
+          display: u.display,
+          qty: 0,
+          unitQty: u.qty,
+          stockBox: cached.stockBox || 0,
+          stockUnit: cached.stockUnit || 0
+        };
+      });
+      memo = cachedAll[0].memo || '';
       break;
     }
   }
