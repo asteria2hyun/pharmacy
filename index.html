@@ -638,8 +638,7 @@ function scanFrame(video) {
           const code = barcodes[0].rawValue;
           if (navigator.vibrate) navigator.vibrate(60);
           closeCam();
-          showToast('읽힌값: ' + code, 'warn');
-          setTimeout(() => addScan(code, scanMode), 1500);
+          addScan(code, scanMode);
           return;
         }
         requestAnimationFrame(detect);
