@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="ko">
 <head>
@@ -578,7 +579,7 @@ function scanFrame(video) {
   // BarcodeDetector API (Chrome 83+, Android Chrome 지원)
   if ('BarcodeDetector' in window) {
     const detector = new BarcodeDetector({
-      formats: ['ean_13', 'ean_8', 'code_128', 'code_39', 'upc_a', 'upc_e']
+      formats: ['ean_13', 'ean_8', 'code_128', 'code_39', 'upc_a', 'upc_e', 'qr_code', 'data_matrix', 'pdf417', 'aztec', 'itf', 'codabar']
     });
     function detect() {
       if (!isScanning) return;
