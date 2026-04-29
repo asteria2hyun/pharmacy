@@ -411,10 +411,19 @@ function init() {
 
 async function loadAllProducts() {
   if (!sheetUrl) return;
+  // 로컬 캐시 먼저 사용 (즉시 검색 가능)
+  const cached = localStorage.getItem('phProductCache');
+  if (cached) {
+    try {
+      allSheetProducts = JSON.parse(cached);
+    } catch(e) {}
+  }
+  // 백그라운드에서 최신 데이터 로드
   try {
     const data = await jsonpFetch(`${sheetUrl}?action=getAll`);
-    if (data.success && data.products) {
+    if (data && data.success && data.products) {
       allSheetProducts = data.products;
+      localStorage.setItem('phProductCache', JSON.stringify(data.products));
     }
   } catch(e) {}
 }
@@ -469,35 +478,51 @@ function onSearch(m, query) {
   const drop = document.getElementById('sdrop-'+m);
   searchCursor[m] = -1;
   if (!query.trim()) { drop.classList.remove('open'); return; }
-  const q = query.toLowerCase();
-  // 시트 캐시 + 백데이터에서 검색
-  const sheetResults = allSheetProducts
-    .filter(p => p.name.toLowerCase().includes(q))
-    .reduce((acc, p) => {
-      // 같은 상품명 중복 제거
-      if (!acc.find(x => x.name === p.name)) acc.push(p);
-      return acc;
-    }, [])
-    .slice(0, 10);
-  const bdResults = Object.values(backData)
-    .filter(p => p.name.toLowerCase().includes(q) && !sheetResults.find(s=>s.name===p.name))
-    .slice(0, 5);
-  const all = [...sheetResults, ...bdResults];
+  const q = query.toLowerCase().trim();
 
-  if (!all.length) {
-    drop.innerHTML = `<div class="sd-empty">검색 결과 없음</div>`;
+  // 검색 소스: 시트캐시 + 백데이터 합치기
+  const allSources = [
+    ...allSheetProducts,
+    ...Object.entries(backData).map(([bc, v]) => ({barcode: bc, name: v.name}))
+  ];
+
+  // 중복 제거 (상품명 기준)
+  const seen = new Set();
+  const unique = allSources.filter(p => {
+    if (!p.name || seen.has(p.name)) return false;
+    seen.add(p.name);
+    return true;
+  });
+
+  // 검색 - 점수 기반 정렬
+  const scored = unique.map(p => {
+    const name = p.name.toLowerCase();
+    let score = 0;
+    if (name === q) score = 100;
+    else if (name.startsWith(q)) score = 80;
+    else if (name.includes(q)) score = 60;
+    // 단어 단위 검색
+    else if (q.split('').every(c => name.includes(c))) score = 30;
+    return { ...p, score };
+  }).filter(p => p.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 12);
+
+  if (!scored.length) {
+    drop.innerHTML = '<div class="sd-empty">검색 결과 없음</div>';
     drop.classList.add('open');
     return;
   }
-  drop.innerHTML = all.map((p, i) => `
+
+  drop.innerHTML = scored.map((p, i) => `
     <div class="sd-item" id="sdi-${m}-${i}"
       onmousedown="selectFromSearch('${m}','${esc(p.barcode||'')}','${esc(p.name)}')"
       ontouchstart="selectFromSearch('${m}','${esc(p.barcode||'')}','${esc(p.name)}')">
       <div class="sd-name">${escHtml(p.name)}</div>
       <div class="sd-bc">${p.barcode||'바코드없음'}</div>
     </div>`).join('');
-  drop.dataset.count = all.length;
-  drop.dataset.items = JSON.stringify(all);
+  drop.dataset.count = scored.length;
+  drop.dataset.items = JSON.stringify(scored);
   drop.classList.add('open');
 }
 
@@ -654,7 +679,29 @@ async function addScan(rawBarcode, m) {
   let unitRows=[], memo='', name='', source='new', foundBarcode=barcode;
 
   // 시트에서 여러 바코드 형식으로 검색
-  if (sheetUrl) {
+  // 캐시에서 먼저 찾기
+  for (const v of variants) {
+    const cached = allSheetProducts.find(p => p.barcode === v);
+    if (cached && cached.name) {
+      name = cached.name;
+      source = 'sheet';
+      foundBarcode = v;
+      unitRows = [{
+        rowIndex: null,
+        unitLabel: cached.unitLabel || '묶음',
+        display: parseUnit(cached.unitLabel || '묶음').display,
+        qty: 1,
+        unitQty: parseUnit(cached.unitLabel || '묶음').qty,
+        stockBox: cached.stockBox || 0,
+        stockUnit: cached.stockUnit || 0
+      }];
+      memo = cached.memo || '';
+      break;
+    }
+  }
+
+  // 캐시에 없으면 시트에서 직접 조회
+  if (!name && sheetUrl) {
     for (const v of variants) {
       try {
         const data=await jsonpFetch(`${sheetUrl}?action=getProduct&barcode=${encodeURIComponent(v)}`);
@@ -681,6 +728,7 @@ async function addScan(rawBarcode, m) {
         }
       } catch(e){}
     }
+  }
   }
 
   // 백데이터에서 이름 찾기
