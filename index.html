@@ -662,6 +662,12 @@ async function addScan(rawBarcode, m) {
   const barcode = normalizeBarcode(rawBarcode);
   const variants = getBarcodeVariants(rawBarcode);
 
+  // 캐시 로드가 안 됐으면 먼저 로드
+  if (allSheetProducts.length === 0 && sheetUrl) {
+    showToast('상품 목록 로딩 중...', '');
+    await loadAllProducts();
+  }
+
   const list = m==='in'?pendingIn:pendingOut;
   // 이미 있으면 첫 단위 +1
   const existing = list.find(x => variants.includes(x.barcode) || x.barcode === barcode);
@@ -687,12 +693,13 @@ async function addScan(rawBarcode, m) {
       name = cached.name;
       source = 'sheet';
       foundBarcode = v;
+      const u = parseUnit(cached.unitLabel || '묶음');
       unitRows = [{
-        rowIndex: null,
+        rowIndex: cached.rowIndex || null,
         unitLabel: cached.unitLabel || '묶음',
-        display: parseUnit(cached.unitLabel || '묶음').display,
+        display: u.display,
         qty: 1,
-        unitQty: parseUnit(cached.unitLabel || '묶음').qty,
+        unitQty: u.qty,
         stockBox: cached.stockBox || 0,
         stockUnit: cached.stockUnit || 0
       }];
@@ -856,7 +863,7 @@ function renderPending(m) {
     const unitQtyHtml = selU ? `
       <div class="unit-qty-box">
         <div class="uqb-info">
-          <div class="uqb-label">${escHtml(selU.unitLabel||selU.display)} 수량</div>
+          <div class="uqb-label">${escHtml(selU.unitLabel||selU.display)}</div>
           <div class="uqb-stock ${stockWarnSel?'warn':''}">${isOut?`재고 ${selU.stockBox}개 → ${selU.stockBox-selU.qty}개`:''}</div>
         </div>
         <div class="qty-stepper">
