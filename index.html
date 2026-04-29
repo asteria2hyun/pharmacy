@@ -127,9 +127,9 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:1
 .uap-save{width:100%;padding:8px;background:var(--accent);color:white;border:none;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;font-family:var(--sans)}
 
 /* 수량 입력 */
-.unit-qty-box{background:var(--surface2);border-radius:10px;padding:10px 12px;display:flex;align-items:center;gap:10px}
-.uqb-info{flex:1}
-.uqb-label{font-size:13px;font-weight:600}
+.unit-qty-box{background:var(--surface2);border-radius:10px;padding:10px 12px;display:flex;align-items:center;gap:10px;min-height:52px}
+.uqb-info{flex:1;min-width:0}
+.uqb-label{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .uqb-stock{font-size:11px;color:var(--text3);margin-top:2px}
 .uqb-stock.warn{color:var(--red)}
 .qty-stepper{display:flex;align-items:center;flex-shrink:0}
