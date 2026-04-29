@@ -667,6 +667,9 @@ async function addScan(rawBarcode, m) {
     showToast('상품 목록 로딩 중...', '');
     await loadAllProducts();
   }
+  
+  // 디버그: 정규화 결과 표시
+  showToast(`스캔: ${rawBarcode} → ${barcode}`, '');
 
   const list = m==='in'?pendingIn:pendingOut;
   // 이미 있으면 첫 단위 +1
