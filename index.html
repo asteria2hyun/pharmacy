@@ -370,15 +370,17 @@ let searchCursor = {in:-1, out:-1};
 // 어떤 형식이든 EAN-13으로 변환
 // ═══════════════════════════════════════
 function normalizeBarcode(raw) {
-  let s = String(raw||'').trim();
-  // 괄호 제거: (01)08806417058212 → 0108806417058212
+  // 숫자와 괄호만 남기고 모두 제거
+  let s = String(raw||'').trim().replace(/[^0-9()]/g, '');
+  // 괄호 제거
   s = s.replace(/[()]/g, '');
-  // 16자리: 01 + 0 + 13자리 → 13자리 (GS1-128 가장 흔한 형식)
-  if (/^01\d{14}$/.test(s)) return s.slice(3);
+  const len = s.length;
+  // 16자리: 01 + 14자리 → 뒤 13자리
+  if (len === 16 && s.startsWith('01')) return s.slice(3);
   // 15자리: 01 + 13자리
-  if (/^01\d{13}$/.test(s)) return s.slice(2);
+  if (len === 15 && s.startsWith('01')) return s.slice(2);
   // 14자리: 0 + 13자리
-  if (/^0\d{13}$/.test(s)) return s.slice(1);
+  if (len === 14 && s.startsWith('0')) return s.slice(1);
   // 13자리: 그대로
   return s;
 }
