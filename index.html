@@ -857,17 +857,17 @@ function renderPending(m) {
     // 각 단위 행으로 표시 (탭 없이)
     const allUnitsHtml = item.unitRows.map((u,ui)=>{
       const sw = isOut && u.stockBox < u.qty;
+      const mid = String(item.id);
       return `
-      <div class="unit-qty-box" style="margin-bottom:6px">
-        <div class="uqb-info">
-          <div class="uqb-label">${escHtml(u.unitLabel||u.display)}</div>
-          <div class="uqb-stock ${sw?'warn':''}">재고 ${u.stockBox}</div>
+      <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--surface2);border-radius:10px;margin-bottom:6px">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(u.unitLabel||u.display)}</div>
+          <div style="font-size:11px;color:${sw?'var(--red)':'var(--text3)'};margin-top:2px">재고 ${u.stockBox}개</div>
         </div>
-        <div class="qty-stepper">
-          <button class="qs-btn" onclick="adjUnitQtyIdx('${m}','${item.id}',${ui},-1)">−</button>
-          <input class="qs-val" id="uqty-${item.id}-${ui}" type="number" value="${u.qty}" min="0"
-            onchange="setUnitQtyIdx('${m}','${item.id}',${ui},this.value)">
-          <button class="qs-btn" onclick="adjUnitQtyIdx('${m}','${item.id}',${ui},1)">+</button>
+        <div style="display:flex;align-items:center;flex-shrink:0">
+          <button class="qs-btn" onclick="adjUnitQtyIdx('${m}','${mid}',${ui},-1)">−</button>
+          <input class="qs-val" id="uqty-${mid}-${ui}" type="number" value="${u.qty}" min="0" onchange="setUnitQtyIdx('${m}','${mid}',${ui},this.value)">
+          <button class="qs-btn" onclick="adjUnitQtyIdx('${m}','${mid}',${ui},1)">+</button>
         </div>
       </div>`;
     }).join('');
@@ -884,12 +884,14 @@ function renderPending(m) {
 
     const unitWarn = isOut && item.stockUnit < item.extraUnits;
     const extraHtml = `
-      <div class="unit-extra">
-        <div class="ue-label">🔹 낱개 <span class="ue-stock ${unitWarn?'warn':''}">재고 ${item.stockUnit}</span></div>
-        <div class="qty-stepper" style="flex-shrink:0">
+      <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-top:1px dashed var(--border)">
+        <div style="flex:1;min-width:0;display:flex;align-items:center;gap:6px">
+          <span style="font-size:12px;color:var(--text2);white-space:nowrap">🔹 낱개</span>
+          <span style="font-size:11px;color:${unitWarn?'var(--red)':'var(--text3)'};white-space:nowrap">재고 ${item.stockUnit}개</span>
+        </div>
+        <div style="display:flex;align-items:center;flex-shrink:0">
           <button class="qs-btn" onclick="adjExtra('${m}','${item.id}',-1)">−</button>
-          <input class="qs-val" id="extra-${item.id}" type="number" value="${item.extraUnits}" min="0"
-            onchange="setExtra('${m}','${item.id}',this.value)">
+          <input class="qs-val" id="extra-${item.id}" type="number" value="${item.extraUnits}" min="0" onchange="setExtra('${m}','${item.id}',this.value)">
           <button class="qs-btn" onclick="adjExtra('${m}','${item.id}',1)">+</button>
         </div>
       </div>`;
@@ -1155,7 +1157,7 @@ function updateSheetStatus(){
   document.getElementById('sheetTxt').textContent=sheetUrl?'시트 연결됨':'시트 연결';
 }
 
-// ══════════════════════════════════════=
+// ═══════════════════════════════════════
 // UTILS
 // ═══════════════════════════════════════
 let _tt;
