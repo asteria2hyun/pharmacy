@@ -364,6 +364,8 @@ let sheetCache = {}; // 바코드 → 시트 데이터 캐시
 let allSheetProducts = []; // 검색용 전체 상품 목록
 let pendingIn=[], pendingOut=[];
 let searchCursor = {in:-1, out:-1};
+let cacheReady = false;
+let cacheReady = false;
 
 // ═══════════════════════════════════════
 // 바코드 정규화
@@ -408,7 +410,12 @@ function init() {
   updateSheetStatus();
   if (sheetUrl) document.getElementById('urlInput').value = sheetUrl;
   updateFileStatus();
-  // 앱 시작 시 전체 상품 목록 미리 로드 (검색용)
+  // 로컬 캐시 있으면 즉시 사용
+  const cached = localStorage.getItem('phProductCache');
+  if (cached) {
+    try { allSheetProducts = JSON.parse(cached); cacheReady = true; } catch(e) {}
+  }
+  // 백그라운드로 최신 데이터 로드
   loadAllProducts();
 }
 
@@ -429,6 +436,8 @@ async function loadAllProducts() {
       localStorage.setItem('phProductCache', JSON.stringify(data.products));
     }
   } catch(e) {}
+  // 캐시 로드 완료 표시
+  cacheReady = true;
 }
 
 function jsonpFetch(url) {
@@ -665,8 +674,8 @@ async function addScan(rawBarcode, m) {
   const variants = getBarcodeVariants(rawBarcode);
 
   // 캐시 로드가 안 됐으면 먼저 로드
-  if (allSheetProducts.length === 0 && sheetUrl) {
-    showToast('상품 목록 로딩 중...', '');
+  if (!cacheReady && sheetUrl) {
+    showToast('⏳ 상품 목록 로딩 중...', '');
     await loadAllProducts();
   }
   
@@ -845,13 +854,21 @@ function renderPending(m) {
     const srcLabel = item.source==='sheet'?'시트':item.source==='local-file'?'백데이터':item.source==='search'?'검색':'신규';
     const srcClass = item.source==='sheet'||item.source==='local-file'||item.source==='search'?'local':'new';
 
-    const unitTabsHtml = item.unitRows.map((u,i)=>{
-      const isSel = i===item.selectedUnit;
-      const selClass = isSel?(m==='in'?'sel-in':'sel-out'):'';
-      const stockWarn = isOut && u.stockBox < u.qty;
-      return `<div class="unit-tab ${selClass}" onclick="selectUnit('${m}','${item.id}',${i})">
-        <div class="ut-name">${escHtml(u.display)}</div>
-        <div class="ut-stock ${stockWarn?'warn':''}">${isOut?`재고 ${u.stockBox}`:''}</div>
+    // 각 단위 행으로 표시 (탭 없이)
+    const allUnitsHtml = item.unitRows.map((u,ui)=>{
+      const sw = isOut && u.stockBox < u.qty;
+      return `
+      <div class="unit-qty-box" style="margin-bottom:6px">
+        <div class="uqb-info">
+          <div class="uqb-label">${escHtml(u.unitLabel||u.display)}</div>
+          <div class="uqb-stock ${sw?'warn':''}">재고 ${u.stockBox}개</div>
+        </div>
+        <div class="qty-stepper">
+          <button class="qs-btn" onclick="adjUnitQtyIdx('${m}','${item.id}',${ui},-1)">−</button>
+          <input class="qs-val" id="uqty-${item.id}-${ui}" type="number" value="${u.qty}" min="0"
+            onchange="setUnitQtyIdx('${m}','${item.id}',${ui},this.value)">
+          <button class="qs-btn" onclick="adjUnitQtyIdx('${m}','${item.id}',${ui},1)">+</button>
+        </div>
       </div>`;
     }).join('');
 
@@ -865,25 +882,10 @@ function renderPending(m) {
         <button class="uap-save" onclick="addUnit('${m}','${item.id}')">추가 (시트에 새 행 삽입)</button>
       </div>`;
 
-    const stockWarnSel = isOut && selU && selU.stockBox < selU.qty;
-    const unitQtyHtml = selU ? `
-      <div class="unit-qty-box">
-        <div class="uqb-info">
-          <div class="uqb-label">${escHtml(selU.unitLabel||selU.display)}</div>
-          <div class="uqb-stock ${stockWarnSel?'warn':''}">${isOut?`재고 ${selU.stockBox}개 → ${selU.stockBox-selU.qty}개`:''}</div>
-        </div>
-        <div class="qty-stepper">
-          <button class="qs-btn" onclick="adjUnitQty('${m}','${item.id}',-1)">−</button>
-          <input class="qs-val" id="uqty-${item.id}" type="number" value="${selU.qty}" min="0"
-            onchange="setUnitQty('${m}','${item.id}',this.value)">
-          <button class="qs-btn" onclick="adjUnitQty('${m}','${item.id}',1)">+</button>
-        </div>
-      </div>` : '';
-
     const unitWarn = isOut && item.stockUnit < item.extraUnits;
     const extraHtml = `
       <div class="unit-extra">
-        <div class="ue-label">🔹 낱개<br><span class="ue-stock ${unitWarn?'warn':''}">${isOut?`재고 ${item.stockUnit}개`:''}</span></div>
+        <div class="ue-label">🔹 낱개<br><span class="ue-stock ${unitWarn?'warn':''}">재고 ${item.stockUnit}개</span></div>
         <div class="qty-stepper">
           <button class="qs-btn" onclick="adjExtra('${m}','${item.id}',-1)">−</button>
           <input class="qs-val" id="extra-${item.id}" type="number" value="${item.extraUnits}" min="0"
@@ -891,6 +893,7 @@ function renderPending(m) {
           <button class="qs-btn" onclick="adjExtra('${m}','${item.id}',1)">+</button>
         </div>
       </div>`;
+    const unitQtyHtml = allUnitsHtml;
 
     return `
     <div class="pending-item ${m}-item" id="pi-${item.id}">
@@ -911,8 +914,7 @@ function renderPending(m) {
         <button class="pi-memo-save" onclick="saveMemo('${m}','${item.id}')">저장</button>
       </div>
       <div class="pi-units">
-        <div class="unit-tabs-row">
-          ${unitTabsHtml}
+        <div style="display:flex;justify-content:flex-end;margin-bottom:6px">
           <button class="unit-add-btn" onclick="toggleAddPanel('${m}','${item.id}')">+ 단위추가</button>
         </div>
         ${addPanelHtml}
@@ -931,20 +933,23 @@ function selectUnit(m,id,idx){
   const i=l.find(x=>String(x.id)===String(id));
   if(i){i.selectedUnit=idx; renderPending(m);}
 }
-function adjUnitQty(m,id,delta){
+function adjUnitQtyIdx(m,id,ui,delta){
   const l=m==='in'?pendingIn:pendingOut;
   const item=l.find(x=>String(x.id)===String(id)); if(!item)return;
-  const u=item.unitRows[item.selectedUnit];
-  if(u){u.qty=Math.max(0,u.qty+delta); const el=document.getElementById('uqty-'+id); if(el)el.value=u.qty;}
+  const u=item.unitRows[ui]; if(!u)return;
+  u.qty=Math.max(0,u.qty+delta);
+  const el=document.getElementById('uqty-'+id+'-'+ui); if(el)el.value=u.qty;
   updateConfirmBar(m);
 }
-function setUnitQty(m,id,val){
+function setUnitQtyIdx(m,id,ui,val){
   const l=m==='in'?pendingIn:pendingOut;
   const item=l.find(x=>String(x.id)===String(id)); if(!item)return;
-  const u=item.unitRows[item.selectedUnit];
-  if(u)u.qty=Math.max(0,parseInt(val)||0);
+  const u=item.unitRows[ui]; if(!u)return;
+  u.qty=Math.max(0,parseInt(val)||0);
   updateConfirmBar(m);
 }
+function adjUnitQty(m,id,delta){adjUnitQtyIdx(m,id,0,delta);}
+function setUnitQty(m,id,val){setUnitQtyIdx(m,id,0,val);}
 function adjExtra(m,id,delta){
   const l=m==='in'?pendingIn:pendingOut;
   const item=l.find(x=>String(x.id)===String(id)); if(!item)return;
