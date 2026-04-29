@@ -636,7 +636,8 @@ function scanFrame(video) {
           const code = barcodes[0].rawValue;
           if (navigator.vibrate) navigator.vibrate(60);
           closeCam();
-          addScan(code, scanMode);
+          showToast('읽힌값: ' + code, 'warn');
+          setTimeout(() => addScan(code, scanMode), 1500);
           return;
         }
         requestAnimationFrame(detect);
@@ -668,8 +669,7 @@ async function addScan(rawBarcode, m) {
     await loadAllProducts();
   }
   
-  // 디버그: 정규화 결과 표시
-  showToast(`스캔: ${rawBarcode} → ${barcode}`, '');
+
 
   const list = m==='in'?pendingIn:pendingOut;
   // 이미 있으면 첫 단위 +1
@@ -711,9 +711,11 @@ async function addScan(rawBarcode, m) {
     }
   }
 
-  // 캐시에 없으면 시트에서 직접 조회
+  // 캐시에 없으면 시트에서 직접 조회 (정규화된 바코드 우선)
   if (!name && sheetUrl) {
-    for (const v of variants) {
+    // 정규화된 바코드를 앞에 추가
+    const searchVariants = [...new Set([barcode, ...variants])];
+    for (const v of searchVariants) {
       try {
         const data=await jsonpFetch(`${sheetUrl}?action=getProduct&barcode=${encodeURIComponent(v)}`);
         if (data && data.success && data.rows && data.rows.length) {
