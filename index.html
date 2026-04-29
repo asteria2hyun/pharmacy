@@ -412,7 +412,7 @@ function init() {
 async function loadAllProducts() {
   if (!sheetUrl) return;
   try {
-    const res = await fetch(`${sheetUrl}?action=getAll`);
+    const res = await fetch(`${sheetUrl}?action=getAll`, {redirect: 'follow'});
     const data = await res.json();
     if (data.success && data.products) {
       allSheetProducts = data.products;
@@ -635,7 +635,7 @@ async function addScan(rawBarcode, m) {
   if (sheetUrl) {
     for (const v of variants) {
       try {
-        const res=await fetch(`${sheetUrl}?action=getProduct&barcode=${encodeURIComponent(v)}`);
+        const res=await fetch(`${sheetUrl}?action=getProduct&barcode=${encodeURIComponent(v)}`, {redirect: 'follow'});
         const data=await res.json();
         if (data.success && data.rows && data.rows.length) {
           name = data.rows[0].name;
@@ -896,6 +896,7 @@ async function addUnit(m,id){
   if(sheetUrl&&item.unitRows[0]?.rowIndex){
     try{
       const res=await fetch(sheetUrl,{method:'POST',headers:{'Content-Type':'text/plain'},
+        redirect:'follow',
         body:JSON.stringify({action:'addUnitRow',barcode:item.barcode,name:item.name,unitLabel:val,afterRowIndex:item.unitRows[item.unitRows.length-1].rowIndex})});
       const data=await res.json();
       if(data.success){newRow.rowIndex=data.rowIndex;}
@@ -914,6 +915,7 @@ async function saveMemo(m,id){
   if(sheetUrl&&item.unitRows[0]?.rowIndex){
     try{
       await fetch(sheetUrl,{method:'POST',headers:{'Content-Type':'text/plain'},
+        redirect:'follow',
         body:JSON.stringify({action:'updateMemo',rowIndex:item.unitRows[0].rowIndex,memo})});
       showToast('📌 참고사항 저장됨','ok');
     }catch(e){showToast('저장 실패','err');}
@@ -981,6 +983,7 @@ async function commitAll(m) {
   if(sheetUrl){
     try{
       const res=await fetch(sheetUrl,{method:'POST',headers:{'Content-Type':'text/plain'},
+        redirect:'follow',
         body:JSON.stringify({action:'batchUpdate',records})});
       const data=await res.json(); sheetOk=data.success;
       // 캐시 초기화 (재고 변경됨)
