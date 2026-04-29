@@ -127,18 +127,18 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:1
 .uap-save{width:100%;padding:8px;background:var(--accent);color:white;border:none;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;font-family:var(--sans)}
 
 /* 수량 입력 */
-.unit-qty-box{background:var(--surface2);border-radius:10px;padding:10px 12px;display:flex;align-items:center;gap:10px;min-height:52px}
-.uqb-info{flex:1;min-width:0}
-.uqb-label{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:120px}
-.uqb-stock{font-size:11px;color:var(--text3);margin-top:2px}
+.unit-qty-box{background:var(--surface2);border-radius:10px;padding:8px 12px;display:flex;align-items:center;gap:8px}
+.uqb-info{flex:1;min-width:0;display:flex;align-items:center;gap:6px}
+.uqb-label{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
+.uqb-stock{font-size:11px;color:var(--text3);white-space:nowrap;flex-shrink:0}
 .uqb-stock.warn{color:var(--red)}
 .qty-stepper{display:flex;align-items:center;flex-shrink:0}
-.qs-btn{width:34px;height:34px;border:none;background:transparent;font-size:22px;cursor:pointer;color:var(--text2);display:flex;align-items:center;justify-content:center;border-radius:6px}
+.qs-btn{width:32px;height:32px;border:none;background:transparent;font-size:20px;cursor:pointer;color:var(--text2);display:flex;align-items:center;justify-content:center;border-radius:6px}
 .qs-btn:active{background:var(--border)}
 .qs-val{font-family:var(--mono);font-size:18px;font-weight:700;min-width:40px;text-align:center;border:none;background:transparent;outline:none;color:var(--text)}
-.unit-extra{padding:6px 12px 12px;display:flex;align-items:center;gap:10px;border-top:1px dashed var(--border)}
-.ue-label{font-size:12px;color:var(--text2);flex:1}
-.ue-stock{font-size:11px;color:var(--text3)}
+.unit-extra{padding:6px 12px 10px;display:flex;align-items:center;gap:8px;border-top:1px dashed var(--border)}
+.ue-label{font-size:12px;color:var(--text2);flex:1;display:flex;align-items:center;gap:6px}
+.ue-stock{font-size:11px;color:var(--text3);white-space:nowrap}
 
 /* Confirm bar */
 .confirm-bar{position:sticky;bottom:82px;left:0;right:0;background:var(--surface);border-top:1px solid var(--border);padding:12px 16px;display:none;max-width:480px;margin:0 auto;z-index:90}
@@ -861,7 +861,7 @@ function renderPending(m) {
       <div class="unit-qty-box" style="margin-bottom:6px">
         <div class="uqb-info">
           <div class="uqb-label">${escHtml(u.unitLabel||u.display)}</div>
-          <div class="uqb-stock ${sw?'warn':''}">재고 ${u.stockBox}개</div>
+          <div class="uqb-stock ${sw?'warn':''}">재고 ${u.stockBox}</div>
         </div>
         <div class="qty-stepper">
           <button class="qs-btn" onclick="adjUnitQtyIdx('${m}','${item.id}',${ui},-1)">−</button>
@@ -885,7 +885,7 @@ function renderPending(m) {
     const unitWarn = isOut && item.stockUnit < item.extraUnits;
     const extraHtml = `
       <div class="unit-extra">
-        <div class="ue-label">🔹 낱개<br><span class="ue-stock ${unitWarn?'warn':''}">재고 ${item.stockUnit}개</span></div>
+        <div class="ue-label">🔹 낱개 <span class="ue-stock ${unitWarn?'warn':''}">재고 ${item.stockUnit}</span></div>
         <div class="qty-stepper">
           <button class="qs-btn" onclick="adjExtra('${m}','${item.id}',-1)">−</button>
           <input class="qs-val" id="extra-${item.id}" type="number" value="${item.extraUnits}" min="0"
