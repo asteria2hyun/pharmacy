@@ -701,7 +701,10 @@ async function addScan(rawBarcode, m) {
   // 시트에서 여러 바코드 형식으로 검색
   // 캐시에서 먼저 찾기
   for (const v of variants) {
-    const cachedAll = allSheetProducts.filter(p => p.barcode === v);
+    // 메인 바코드 또는 추가 바코드(G열) 검색
+    const cachedAll = allSheetProducts.filter(p => 
+      p.barcode === v || (p.extraBarcodes && p.extraBarcodes.includes(v))
+    );
     if (cachedAll.length > 0 && cachedAll[0].name) {
       name = cachedAll[0].name;
       source = 'sheet';
