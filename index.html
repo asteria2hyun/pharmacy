@@ -1,5 +1,4 @@
 
-
 <!DOCTYPE html>
 <html lang="ko">
 <head>
@@ -1106,7 +1105,7 @@ async function linkToExisting(m, id, existingBarcode, existingName) {
   let unitRows = [];
   let stockUnit = 0;
   try {
-    const res = await fetch(`${SCRIPT_URL}?action=getProduct&barcode=${encodeURIComponent(existingBarcode)}`);
+    const res = await fetch(`${DEFAULT_URL}?action=getProduct&barcode=${encodeURIComponent(existingBarcode)}`);
     const data = await res.json();
     if (data.success && data.rows?.length) {
       unitRows = data.rows.map(r => ({
@@ -1149,7 +1148,7 @@ async function linkToExisting(m, id, existingBarcode, existingName) {
 
   // G열에 새 바코드 추가 (백그라운드)
   if (newBarcode && newBarcode !== existingBarcode) {
-    fetch(SCRIPT_URL, {
+    fetch(DEFAULT_URL, {
       method: 'POST',
       headers: {'Content-Type': 'text/plain'},
       body: JSON.stringify({ action: 'addExtraBarcode', existingBarcode, newBarcode })
