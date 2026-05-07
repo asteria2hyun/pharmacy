@@ -1087,27 +1087,66 @@ function onNewItemSearch(m, id, query) {
   drop.style.display = 'block';
 }
 
-// 기존 상품 선택 → G열에 바코드 연결
-function linkToExisting(m, id, existingBarcode, existingName) {
+// 기존 상품 선택 → G열에 바코드 연결 + 기존 상품 데이터로 교체
+async function linkToExisting(m, id, existingBarcode, existingName) {
   const l = m==='in'?pendingIn:pendingOut;
   const item = l.find(x=>String(x.id)===String(id));
   if (!item) return;
 
-  const newBarcode = item.barcode;
+  const newBarcode = item.barcode; // 스캔한 새 바코드
 
-  // 드롭다운 닫기 & 이름 표시
+  // 드롭다운 닫기
   const drop = document.getElementById('new-drop-' + id);
   if (drop) drop.style.display = 'none';
-  const nameInput = document.getElementById('name-' + id);
-  if (nameInput) nameInput.value = existingName;
 
-  // 아이템을 기존 상품으로 전환
+  showToast('상품 정보 불러오는 중...', '');
+
+  // 기존 상품 데이터 시트에서 조회
+  let unitRows = [];
+  let stockUnit = 0;
+  try {
+    const res = await fetch(`${SCRIPT_URL}?action=getProduct&barcode=${encodeURIComponent(existingBarcode)}`);
+    const data = await res.json();
+    if (data.success && data.rows?.length) {
+      unitRows = data.rows.map(r => ({
+        rowIndex: r.rowIndex,
+        unitLabel: r.unitLabel,
+        display: parseUnit(r.unitLabel).display,
+        qty: 0,
+        unitQty: parseUnit(r.unitLabel).qty,
+        stockBox: r.stockBox || 0,
+        stockUnit: r.stockUnit || 0
+      }));
+      stockUnit = data.rows[0].stockUnit || 0;
+    }
+  } catch(e) {
+    // 로컬 캐시에서 찾기
+    const cached = allSheetProducts.filter(p => p.barcode === existingBarcode);
+    if (cached.length) {
+      unitRows = cached.map(c => ({
+        rowIndex: null,
+        unitLabel: c.unitLabel || '',
+        display: parseUnit(c.unitLabel).display,
+        qty: 0,
+        unitQty: parseUnit(c.unitLabel).qty,
+        stockBox: c.stockBox || 0,
+        stockUnit: c.stockUnit || 0
+      }));
+      stockUnit = cached[0].stockUnit || 0;
+    }
+  }
+
+  // 아이템을 기존 상품으로 완전히 전환
   item.name = existingName;
   item.barcode = existingBarcode;
   item.source = 'sheet';
   item.isNew = false;
+  item.showLinkPanel = false;
+  item.unitRows = unitRows;
+  item.stockUnit = stockUnit;
+  item.showAddPanel = unitRows.length === 0;
 
-  // G열에 바코드 추가 (백그라운드)
+  // G열에 새 바코드 추가 (백그라운드)
   if (newBarcode && newBarcode !== existingBarcode) {
     fetch(SCRIPT_URL, {
       method: 'POST',
@@ -1122,10 +1161,13 @@ function linkToExisting(m, id, existingBarcode, existingName) {
         }
         showToast(`✅ "${existingName}" 바코드 연결됨`, 'ok');
       } else {
-        showToast('연결 실패: ' + (data.message||''), 'err');
+        showToast('G열 연결 실패: ' + (data.message||''), 'err');
       }
     }).catch(() => showToast('연결 중 오류', 'err'));
+  } else {
+    showToast(`✅ "${existingName}" 선택됨`, 'ok');
   }
+
   renderPending(m);
 }
 
