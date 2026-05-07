@@ -803,10 +803,11 @@ async function addScan(rawBarcode, m) {
     selectedUnit: 0,
     extraUnits: 0,
     stockUnit: unitRows[0]?.stockUnit||0,
-    showAddPanel: false
+    showAddPanel: false,
+    showLinkPanel: false
   };
 
-  list.push(item);
+  list.unshift(item);
   le.classList.remove('show');
   renderPending(m);
 
@@ -936,6 +937,12 @@ function renderPending(m) {
             ? `<input class="pi-name-input" id="name-${item.id}" placeholder="상품명 입력" value="${escHtml(item.name)}" onchange="updateName('${m}','${item.id}',this.value)">`
             : `<div class="pi-name">${escHtml(item.name)}</div>`}
           <div class="pi-barcode">${escHtml(item.barcode)||'바코드없음'}</div>
+          ${item.source==='new' ? `<button onclick="toggleLinkPanel('${m}','${item.id}')" style="font-size:10px;color:var(--accent);background:var(--accent-bg);border:1px solid #ddd6fe;border-radius:6px;padding:2px 8px;cursor:pointer;margin-top:3px;font-family:var(--sans)">🔗 기존 상품에 연결</button>` : ''}
+          ${item.showLinkPanel ? `<div style="margin-top:6px;background:var(--accent-bg);border:1px solid #ddd6fe;border-radius:8px;padding:8px 10px">
+            <div style="font-size:10px;font-weight:700;color:var(--accent);margin-bottom:6px">기존 상품 검색 → 이 바코드를 G열에 추가</div>
+            <input id="link-search-${item.id}" style="width:100%;padding:6px 8px;border:1px solid #ddd6fe;border-radius:6px;font-size:12px;font-family:var(--sans);outline:none;margin-bottom:4px" placeholder="상품명 검색..." oninput="searchForLink('${m}','${item.id}',this.value)">
+            <div id="link-results-${item.id}"></div>
+          </div>` : ''}
           <span class="pi-source ${srcClass}">${srcLabel}</span>
         </div>
         <button class="pi-del-btn" onclick="removeItem('${m}','${item.id}')">✕</button>
@@ -1042,6 +1049,65 @@ async function saveMemo(m,id){
     showToast('📌 참고사항 저장됨','ok');
   }
 }
+function toggleLinkPanel(m, id) {
+  const l = m==='in'?pendingIn:pendingOut;
+  const item = l.find(x=>String(x.id)===String(id));
+  if (!item) return;
+  item.showLinkPanel = !item.showLinkPanel;
+  renderPending(m);
+}
+
+function searchForLink(m, id, query) {
+  const resultsEl = document.getElementById('link-results-' + id);
+  if (!resultsEl) return;
+  if (!query.trim()) { resultsEl.innerHTML = ''; return; }
+  const q = query.toLowerCase();
+  const results = allSheetProducts.filter(p => p.name && p.name.toLowerCase().includes(q)).slice(0, 8);
+  if (!results.length) { resultsEl.innerHTML = '<div style="font-size:11px;color:var(--text3);padding:4px">검색 결과 없음</div>'; return; }
+  resultsEl.innerHTML = results.map(p => `
+    <div onclick="linkToExisting('${m}','${id}','${esc(p.barcode||'')}','${esc(p.name)}')"
+      style="padding:6px 8px;cursor:pointer;border-radius:6px;font-size:12px;display:flex;justify-content:space-between;align-items:center;margin-bottom:2px;background:white">
+      <span style="font-weight:600">${escHtml(p.name)}</span>
+      <span style="font-family:var(--mono);font-size:10px;color:var(--text3)">${escHtml(p.barcode||'')}</span>
+    </div>`).join('');
+}
+
+function linkToExisting(m, id, existingBarcode, existingName) {
+  const l = m==='in'?pendingIn:pendingOut;
+  const item = l.find(x=>String(x.id)===String(id));
+  if (!item) return;
+  if (!confirm(`"${existingName}"에 이 바코드(${item.barcode})를 추가바코드로 연결할까요?`)) return;
+  // Apps Script에 G열 업데이트 요청
+  fetch(SCRIPT_URL, {
+    method: 'POST',
+    headers: {'Content-Type': 'text/plain'},
+    body: JSON.stringify({
+      action: 'addExtraBarcode',
+      existingBarcode: existingBarcode,
+      newBarcode: item.barcode
+    })
+  }).then(r=>r.json()).then(data => {
+    if (data.success) {
+      // 로컬 캐시도 업데이트
+      const cached = allSheetProducts.find(p => p.barcode === existingBarcode);
+      if (cached) {
+        if (!cached.extraBarcodes) cached.extraBarcodes = [];
+        cached.extraBarcodes.push(item.barcode);
+      }
+      // 이 아이템을 기존 상품으로 교체
+      item.barcode = existingBarcode;
+      item.name = existingName;
+      item.source = 'sheet';
+      item.isNew = false;
+      item.showLinkPanel = false;
+      showToast(`✅ "${existingName}"에 바코드 연결됨`, 'ok');
+      renderPending(m);
+    } else {
+      showToast('연결 실패: ' + (data.message||''), 'err');
+    }
+  }).catch(() => showToast('연결 중 오류', 'err'));
+}
+
 function updateName(m,id,val){
   const l=m==='in'?pendingIn:pendingOut;
   const i=l.find(x=>String(x.id)===String(id)); if(i)i.name=val;
