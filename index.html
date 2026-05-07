@@ -399,6 +399,22 @@ function getBarcodeVariants(barcode) {
   if (norm.startsWith('88') && norm.length === 13) {
     variants.add('2' + norm.slice(3, 13));
   }
+  // 앞자리 잘린 경우 대응: 끝 8자리로 시트 상품과 매칭
+  if (norm.length >= 8) {
+    const suffix = norm.slice(-8);
+    for (const p of allSheetProducts) {
+      if (!p.barcode) continue;
+      const pnorm = normalizeBarcode(p.barcode);
+      if (pnorm.endsWith(suffix) && pnorm !== norm) variants.add(pnorm);
+      // extraBarcodes도 확인
+      if (p.extraBarcodes) {
+        for (const eb of p.extraBarcodes) {
+          const ebnorm = normalizeBarcode(eb);
+          if (ebnorm.endsWith(suffix) && ebnorm !== norm) variants.add(ebnorm);
+        }
+      }
+    }
+  }
   return [...variants];
 }
 
@@ -635,14 +651,24 @@ async function startQuagga() {
 
 function scanFrame(video) {
   if (!isScanning) return;
-  // BarcodeDetector API (Chrome 83+, Android Chrome 지원)
   if ('BarcodeDetector' in window) {
     const detector = new BarcodeDetector({
       formats: ['ean_13', 'ean_8', 'code_128', 'code_39', 'upc_a', 'upc_e', 'qr_code', 'data_matrix', 'pdf417', 'aztec', 'itf', 'codabar']
     });
+    // 프레임 크롭용 캔버스 (중앙 영역만 인식)
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
     function detect() {
       if (!isScanning) return;
-      detector.detect(video).then(barcodes => {
+      if (video.readyState < 2) { requestAnimationFrame(detect); return; }
+      const vw = video.videoWidth, vh = video.videoHeight;
+      if (!vw || !vh) { requestAnimationFrame(detect); return; }
+      // 화면 중앙 65% x 32% 영역만 크롭
+      const fw = Math.floor(vw * 0.65), fh = Math.floor(vh * 0.32);
+      const fx = Math.floor((vw - fw) / 2), fy = Math.floor((vh - fh) / 2);
+      canvas.width = fw; canvas.height = fh;
+      ctx.drawImage(video, fx, fy, fw, fh, 0, 0, fw, fh);
+      detector.detect(canvas).then(barcodes => {
         if (barcodes.length > 0) {
           const code = barcodes[0].rawValue;
           if (navigator.vibrate) navigator.vibrate(60);
@@ -655,7 +681,6 @@ function scanFrame(video) {
     }
     detect();
   } else {
-    // BarcodeDetector 미지원시 수동입력 안내
     showToast('이 기기는 자동 스캔 미지원. 수동 입력 사용', 'warn');
   }
 }
@@ -811,7 +836,7 @@ async function addScanByName(name, m) {
     unitRows: [{rowIndex:null,unitLabel:'묶음',display:'묶음',qty:1,unitQty:1,stockBox:0,stockUnit:0}],
     selectedUnit:0, extraUnits:0, stockUnit:0, showAddPanel:false
   };
-  list.push(item);
+  list.unshift(item);
   renderPending(m);
   showToast(`${name} 추가됨`,'ok');
 }
