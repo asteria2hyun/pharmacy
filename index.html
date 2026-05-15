@@ -694,19 +694,21 @@ function scanFrame(video) {
     // iOS Safari - QuaggaJS (1D) + jsQR (QR코드) 병행
     const videoEl = document.getElementById('scanner-view');
 
-    // 1. jsQR로 QR코드 감지 (별도 루프)
-    if (typeof jsQR === 'undefined') {
-      showToast('jsQR 미로드 - QR 불가', 'warn');
-    }
+    // 1. jsQR로 QR코드 감지 - Quagga의 실제 video 사용
+    const _qrCanvas = document.createElement('canvas');
+    const _qrCtx = _qrCanvas.getContext('2d');
     function detectQR() {
       if (!isScanning) return;
-      if (typeof jsQR === 'undefined') { requestAnimationFrame(detectQR); return; }
-      if (video.readyState < 2) { requestAnimationFrame(detectQR); return; }
-      const canvas = cropVideoFrame(video);
-      if (!canvas) { requestAnimationFrame(detectQR); return; }
+      // Quagga가 만든 video 엘리먼트 찾기
+      const liveVideo = document.querySelector('#scanner-view video') || video;
+      if (!liveVideo || liveVideo.readyState < 2) { requestAnimationFrame(detectQR); return; }
+      const vw = liveVideo.videoWidth, vh = liveVideo.videoHeight;
+      if (!vw || !vh) { requestAnimationFrame(detectQR); return; }
+      _qrCanvas.width = vw; _qrCanvas.height = vh;
+      _qrCtx.drawImage(liveVideo, 0, 0, vw, vh);
       try {
-        const imageData = _cropCtx.getImageData(0, 0, canvas.width, canvas.height);
-        const qr = jsQR(imageData.data, canvas.width, canvas.height, { inversionAttempts: 'attemptBoth' });
+        const imageData = _qrCtx.getImageData(0, 0, vw, vh);
+        const qr = jsQR(imageData.data, vw, vh, { inversionAttempts: 'attemptBoth' });
         if (qr && qr.data) {
           if (navigator.vibrate) navigator.vibrate(60);
           closeCam(); addScan(qr.data, scanMode); return;
@@ -714,7 +716,8 @@ function scanFrame(video) {
       } catch(e) {}
       requestAnimationFrame(detectQR);
     }
-    detectQR();
+    // Quagga 시작 후 detectQR 실행
+    setTimeout(detectQR, 1500);
 
     // 2. QuaggaJS로 1D 바코드 감지
     Quagga.init({
