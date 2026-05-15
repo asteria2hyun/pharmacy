@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+<script src="https://unpkg.com/jsqr@1.4.0/dist/jsQR.js"></script>
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
 <title>약국 재고관리</title>
@@ -695,17 +695,23 @@ function scanFrame(video) {
     const videoEl = document.getElementById('scanner-view');
 
     // 1. jsQR로 QR코드 감지 (별도 루프)
+    if (typeof jsQR === 'undefined') {
+      showToast('jsQR 미로드 - QR 불가', 'warn');
+    }
     function detectQR() {
       if (!isScanning) return;
+      if (typeof jsQR === 'undefined') { requestAnimationFrame(detectQR); return; }
       if (video.readyState < 2) { requestAnimationFrame(detectQR); return; }
       const canvas = cropVideoFrame(video);
       if (!canvas) { requestAnimationFrame(detectQR); return; }
-      const imageData = _cropCtx.getImageData(0, 0, canvas.width, canvas.height);
-      const qr = jsQR(imageData.data, canvas.width, canvas.height, { inversionAttempts: 'dontInvert' });
-      if (qr && qr.data) {
-        if (navigator.vibrate) navigator.vibrate(60);
-        closeCam(); addScan(qr.data, scanMode); return;
-      }
+      try {
+        const imageData = _cropCtx.getImageData(0, 0, canvas.width, canvas.height);
+        const qr = jsQR(imageData.data, canvas.width, canvas.height, { inversionAttempts: 'attemptBoth' });
+        if (qr && qr.data) {
+          if (navigator.vibrate) navigator.vibrate(60);
+          closeCam(); addScan(qr.data, scanMode); return;
+        }
+      } catch(e) {}
       requestAnimationFrame(detectQR);
     }
     detectQR();
