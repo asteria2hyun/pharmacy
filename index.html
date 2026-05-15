@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
 <title>약국 재고관리</title>
@@ -628,10 +628,10 @@ function closeCam() {
   }
   const video = document.getElementById('scanner-video');
   if (video) { video.srcObject = null; }
-  // html5-qrcode 인스턴스 정리 (iOS)
-  if (window._html5qrInstance) {
-    window._html5qrInstance.stop().catch(()=>{});
-    window._html5qrInstance = null;
+  // Quagga 정리 (iOS)
+  if (window._quaggaRunning) {
+    try { Quagga.stop(); } catch(e) {}
+    window._quaggaRunning = false;
   }
 }
 async function startQuagga() {
@@ -689,37 +689,33 @@ function scanFrame(video) {
     }
     detect();
 
-  } else if (window.Html5Qrcode) {
-    // iOS Safari - html5-qrcode 라이브러리
-    const qrDiv = document.createElement('div');
-    qrDiv.id = '_qr_hidden_' + Date.now();
-    qrDiv.style.cssText = 'position:absolute;width:1px;height:1px;opacity:0;pointer-events:none';
-    document.body.appendChild(qrDiv);
-    const html5qr = new Html5Qrcode(qrDiv.id);
-    html5qr.start(
-      { facingMode: 'environment' },
-      { fps: 15, qrbox: { width: 250, height: 150 },
-        formatsToSupport: [
-          Html5QrcodeSupportedFormats.EAN_13, Html5QrcodeSupportedFormats.EAN_8,
-          Html5QrcodeSupportedFormats.CODE_128, Html5QrcodeSupportedFormats.CODE_39,
-          Html5QrcodeSupportedFormats.UPC_A, Html5QrcodeSupportedFormats.UPC_E,
-          Html5QrcodeSupportedFormats.QR_CODE, Html5QrcodeSupportedFormats.ITF,
-          Html5QrcodeSupportedFormats.CODABAR
-        ]
+  } else if (window.Quagga) {
+    // iOS Safari - QuaggaJS
+    const videoEl = document.getElementById('scanner-view');
+    Quagga.init({
+      inputStream: {
+        name: 'Live',
+        type: 'LiveStream',
+        target: videoEl,
+        constraints: { facingMode: 'environment', width: 1280, height: 720 },
+        area: { top: '30%', right: '15%', left: '15%', bottom: '30%' }
       },
-      (code) => {
-        if (!isScanning) return;
-        html5qr.stop().catch(()=>{});
-        qrDiv.remove();
-        if (navigator.vibrate) navigator.vibrate(60);
-        closeCam(); addScan(code, scanMode);
+      decoder: {
+        readers: ['ean_reader','ean_8_reader','code_128_reader','code_39_reader','upc_reader','upc_e_reader','i2of5_reader','codabar_reader']
       },
-      () => {}
-    ).catch(() => showToast('카메라 시작 실패. 수동 입력 사용', 'warn'));
-
-    // closeCam 시 html5qr도 정리
-    const _origClose = window._html5qrInstance;
-    window._html5qrInstance = html5qr;
+      locate: true
+    }, (err) => {
+      if (err) { showToast('카메라 시작 실패: ' + err, 'err'); return; }
+      Quagga.start();
+      window._quaggaRunning = true;
+    });
+    Quagga.onDetected((result) => {
+      if (!isScanning) return;
+      const code = result.codeResult.code;
+      if (!code) return;
+      if (navigator.vibrate) navigator.vibrate(60);
+      closeCam(); addScan(code, scanMode);
+    });
 
   } else {
     showToast('이 기기는 자동 스캔 미지원. 수동 입력 사용', 'warn');
