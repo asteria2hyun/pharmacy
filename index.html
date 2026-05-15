@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
 <title>약국 재고관리</title>
@@ -690,8 +691,26 @@ function scanFrame(video) {
     detect();
 
   } else if (window.Quagga) {
-    // iOS Safari - QuaggaJS
+    // iOS Safari - QuaggaJS (1D) + jsQR (QR코드) 병행
     const videoEl = document.getElementById('scanner-view');
+
+    // 1. jsQR로 QR코드 감지 (별도 루프)
+    function detectQR() {
+      if (!isScanning) return;
+      if (video.readyState < 2) { requestAnimationFrame(detectQR); return; }
+      const canvas = cropVideoFrame(video);
+      if (!canvas) { requestAnimationFrame(detectQR); return; }
+      const imageData = _cropCtx.getImageData(0, 0, canvas.width, canvas.height);
+      const qr = jsQR(imageData.data, canvas.width, canvas.height, { inversionAttempts: 'dontInvert' });
+      if (qr && qr.data) {
+        if (navigator.vibrate) navigator.vibrate(60);
+        closeCam(); addScan(qr.data, scanMode); return;
+      }
+      requestAnimationFrame(detectQR);
+    }
+    detectQR();
+
+    // 2. QuaggaJS로 1D 바코드 감지
     Quagga.init({
       inputStream: {
         name: 'Live',
@@ -705,7 +724,7 @@ function scanFrame(video) {
       },
       locate: true
     }, (err) => {
-      if (err) { showToast('카메라 시작 실패: ' + err, 'err'); return; }
+      if (err) return;
       Quagga.start();
       window._quaggaRunning = true;
     });
