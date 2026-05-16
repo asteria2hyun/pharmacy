@@ -692,7 +692,23 @@ function scanFrame(video) {
   } else if (window.ZXing) {
     // iOS Safari - ZXing 웹어셈블리 (QR + 1D 모두 지원)
     try {
-      const codeReader = new ZXing.BrowserMultiFormatReader();
+      const hints = new Map();
+      hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
+        ZXing.BarcodeFormat.EAN_13,
+        ZXing.BarcodeFormat.EAN_8,
+        ZXing.BarcodeFormat.CODE_128,
+        ZXing.BarcodeFormat.CODE_39,
+        ZXing.BarcodeFormat.UPC_A,
+        ZXing.BarcodeFormat.UPC_E,
+        ZXing.BarcodeFormat.ITF,
+        ZXing.BarcodeFormat.CODABAR,
+        ZXing.BarcodeFormat.QR_CODE,
+        ZXing.BarcodeFormat.DATA_MATRIX,
+        ZXing.BarcodeFormat.PDF_417,
+        ZXing.BarcodeFormat.AZTEC
+      ]);
+      hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+      const codeReader = new ZXing.BrowserMultiFormatReader(hints);
       window._zxingReader = codeReader;
       codeReader.decodeFromVideoDevice(null, 'scanner-video', (result, err) => {
         if (!isScanning) return;
