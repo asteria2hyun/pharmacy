@@ -4,8 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
-<script src="https://unpkg.com/jsqr@1.4.0/dist/jsQR.js"></script>
+<script src="https://unpkg.com/@zxing/library@0.19.1/umd/index.min.js"></script>
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
 <title>약국 재고관리</title>
@@ -629,10 +628,10 @@ function closeCam() {
   }
   const video = document.getElementById('scanner-video');
   if (video) { video.srcObject = null; }
-  // Quagga 정리 (iOS)
-  if (window._quaggaRunning) {
-    try { Quagga.stop(); } catch(e) {}
-    window._quaggaRunning = false;
+  // ZXing 정리 (iOS)
+  if (window._zxingReader) {
+    try { window._zxingReader.reset(); } catch(e) {}
+    window._zxingReader = null;
   }
 }
 async function startQuagga() {
@@ -690,60 +689,22 @@ function scanFrame(video) {
     }
     detect();
 
-  } else if (window.Quagga) {
-    // iOS Safari - QuaggaJS (1D) + jsQR (QR코드) 병행
-    const videoEl = document.getElementById('scanner-view');
-
-    // 1. jsQR로 QR코드 감지 - Quagga의 실제 video 사용
-    const _qrCanvas = document.createElement('canvas');
-    const _qrCtx = _qrCanvas.getContext('2d');
-    function detectQR() {
-      if (!isScanning) return;
-      // Quagga가 만든 video 엘리먼트 찾기
-      const liveVideo = document.querySelector('#scanner-view video') || video;
-      if (!liveVideo || liveVideo.readyState < 2) { requestAnimationFrame(detectQR); return; }
-      const vw = liveVideo.videoWidth, vh = liveVideo.videoHeight;
-      if (!vw || !vh) { requestAnimationFrame(detectQR); return; }
-      _qrCanvas.width = vw; _qrCanvas.height = vh;
-      _qrCtx.drawImage(liveVideo, 0, 0, vw, vh);
-      try {
-        const imageData = _qrCtx.getImageData(0, 0, vw, vh);
-        const qr = jsQR(imageData.data, vw, vh, { inversionAttempts: 'attemptBoth' });
-        if (qr && qr.data) {
+  } else if (window.ZXing) {
+    // iOS Safari - ZXing 웹어셈블리 (QR + 1D 모두 지원)
+    try {
+      const codeReader = new ZXing.BrowserMultiFormatReader();
+      window._zxingReader = codeReader;
+      codeReader.decodeFromVideoDevice(null, 'scanner-video', (result, err) => {
+        if (!isScanning) return;
+        if (result) {
           if (navigator.vibrate) navigator.vibrate(60);
-          closeCam(); addScan(qr.data, scanMode); return;
+          closeCam();
+          addScan(result.getText(), scanMode);
         }
-      } catch(e) {}
-      requestAnimationFrame(detectQR);
+      });
+    } catch(e) {
+      showToast('스캐너 오류: ' + e.message, 'err');
     }
-    // Quagga 시작 후 detectQR 실행
-    setTimeout(detectQR, 1500);
-
-    // 2. QuaggaJS로 1D 바코드 감지
-    Quagga.init({
-      inputStream: {
-        name: 'Live',
-        type: 'LiveStream',
-        target: videoEl,
-        constraints: { facingMode: 'environment', width: 1280, height: 720 },
-        area: { top: '30%', right: '15%', left: '15%', bottom: '30%' }
-      },
-      decoder: {
-        readers: ['ean_reader','ean_8_reader','code_128_reader','code_39_reader','upc_reader','upc_e_reader','i2of5_reader','codabar_reader']
-      },
-      locate: true
-    }, (err) => {
-      if (err) return;
-      Quagga.start();
-      window._quaggaRunning = true;
-    });
-    Quagga.onDetected((result) => {
-      if (!isScanning) return;
-      const code = result.codeResult.code;
-      if (!code) return;
-      if (navigator.vibrate) navigator.vibrate(60);
-      closeCam(); addScan(code, scanMode);
-    });
 
   } else {
     showToast('이 기기는 자동 스캔 미지원. 수동 입력 사용', 'warn');
