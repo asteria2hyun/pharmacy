@@ -1108,7 +1108,7 @@ function onNewItemSearch(m, id, query) {
   const q = query.toLowerCase();
   const results = allSheetProducts.filter(p =>
     p.name && p.name.toLowerCase().includes(q)
-  ).slice(0, 8);
+  ).slice(0, 20);
 
   const header = '<div style="padding:6px 10px;font-size:10px;color:var(--text3);border-bottom:1px solid var(--border)">기존 상품 선택 시 바코드 연결 / 미선택 시 신규 추가</div>';
 
