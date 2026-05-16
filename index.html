@@ -837,7 +837,7 @@ async function addScan(rawBarcode, m) {
   }
 
   const item = {
-    id: Date.now()+Math.random(),
+    id: Date.now(),
     barcode: foundBarcode,
     name, memo, source,
     isNew: !name,
@@ -872,7 +872,7 @@ async function addScanByName(name, m) {
   }
   // 이름만으로 직접 추가
   const item = {
-    id: Date.now()+Math.random(),
+    id: Date.now(),
     barcode: '',
     name, memo: '', source: 'search',
     isNew: false,
@@ -978,10 +978,10 @@ function renderPending(m) {
           ${item.isNew
             ? `<div style="position:relative">
                 <input class="pi-name-input" id="name-${item.id}" placeholder="상품명 입력 (기존 상품 자동검색)" value="${escHtml(item.name)}"
-                  oninput="onNewItemSearch('${m}','${item.id}',this.value)"
+                  oninput="onNewItemSearch('${m}','${String(item.id).replace(".","_")}',this.value)"
                   onchange="updateName('${m}','${item.id}',this.value)"
                   autocomplete="off">
-                <div id="new-drop-${item.id}" style="display:none;position:absolute;left:0;right:0;top:100%;background:white;border:1px solid var(--border);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.1);z-index:100;max-height:180px;overflow-y:auto">
+                <div id="new-drop-${String(item.id).replace('.','_')}" style="display:none;position:absolute;left:0;right:0;top:100%;background:white;border:1px solid var(--border);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.1);z-index:100;max-height:180px;overflow-y:auto">
                   <div style="padding:6px 10px;font-size:10px;color:var(--text3);border-bottom:1px solid var(--border)">기존 상품 선택 시 바코드 연결 / 미선택 시 신규 추가</div>
                 </div>
               </div>`
@@ -1100,7 +1100,7 @@ function onNewItemSearch(m, id, query) {
   if (!item) return;
   item.name = query; // 이름 실시간 업데이트
 
-  const drop = document.getElementById('new-drop-' + id);
+  const drop = document.getElementById('new-drop-' + String(id).replace('.','_'));
   if (!drop) return;
 
   if (!query.trim()) { drop.style.display='none'; return; }
@@ -1138,7 +1138,7 @@ async function linkToExisting(m, id, existingBarcode, existingName) {
   const newBarcode = item.barcode; // 스캔한 새 바코드
 
   // 드롭다운 닫기
-  const drop = document.getElementById('new-drop-' + id);
+  const drop = document.getElementById('new-drop-' + String(id).replace('.','_'));
   if (drop) drop.style.display = 'none';
 
   showToast('상품 정보 불러오는 중...', '');
