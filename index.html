@@ -1129,44 +1129,45 @@ async function linkToExisting(m, id, existingBarcode, existingName) {
 
   showToast('상품 정보 불러오는 중...', '');
 
-  // 기존 상품 데이터 시트에서 조회
+  // 기존 상품 데이터 - rowIndex로 조회 (바코드 없어도 됨)
   let unitRows = [];
   let stockUnit = 0;
-  try {
-    const res = await fetch(`${DEFAULT_URL}?action=getProduct&barcode=${encodeURIComponent(existingBarcode)}`);
-    const data = await res.json();
-    if (data.success && data.rows?.length) {
-      unitRows = data.rows.map(r => ({
-        rowIndex: r.rowIndex,
-        unitLabel: r.unitLabel,
-        display: parseUnit(r.unitLabel).display,
-        qty: 0,
-        unitQty: parseUnit(r.unitLabel).qty,
-        stockBox: r.stockBox || 0,
-        stockUnit: r.stockUnit || 0
-      }));
-      stockUnit = data.rows[0].stockUnit || 0;
-    }
-  } catch(e) {
-    // 로컬 캐시에서 찾기
-    const cached = allSheetProducts.filter(p => p.barcode === existingBarcode);
-    if (cached.length) {
-      unitRows = cached.map(c => ({
-        rowIndex: null,
-        unitLabel: c.unitLabel || '',
-        display: parseUnit(c.unitLabel).display,
-        qty: 0,
-        unitQty: parseUnit(c.unitLabel).qty,
-        stockBox: c.stockBox || 0,
-        stockUnit: c.stockUnit || 0
-      }));
-      stockUnit = cached[0].stockUnit || 0;
-    }
+
+  // 먼저 로컬 캐시에서 이름으로 찾기
+  const cachedByName = allSheetProducts.filter(p => p.name === existingName);
+
+  if (existingBarcode && existingBarcode.trim()) {
+    // A열에 바코드 있는 경우 - 바코드로 시트 조회
+    try {
+      const res = await fetch(`${DEFAULT_URL}?action=getProduct&barcode=${encodeURIComponent(existingBarcode)}`);
+      const data = await res.json();
+      if (data.success && data.rows?.length) {
+        const seen = new Set();
+        unitRows = data.rows
+          .filter(r => { const lb=(r.unitLabel||'').trim(); if(seen.has(lb))return false; seen.add(lb); return true; })
+          .map(r => ({rowIndex:r.rowIndex, unitLabel:r.unitLabel, display:parseUnit(r.unitLabel).display,
+            qty:0, unitQty:parseUnit(r.unitLabel).qty, stockBox:r.stockBox||0, stockUnit:r.stockUnit||0}));
+        stockUnit = data.rows[0].stockUnit || 0;
+      }
+    } catch(e) {}
+  }
+
+  // 바코드 없거나 조회 실패 시 - 캐시에서 이름으로 찾기
+  if (!unitRows.length && cachedByName.length) {
+    const seen = new Set();
+    unitRows = cachedByName
+      .filter(c => { const lb=(c.unitLabel||'').trim(); if(seen.has(lb))return false; seen.add(lb); return true; })
+      .map(c => ({rowIndex:c.rowIndex||null, unitLabel:c.unitLabel||'',
+        display:parseUnit(c.unitLabel).display, qty:0, unitQty:parseUnit(c.unitLabel).qty,
+        stockBox:c.stockBox||0, stockUnit:c.stockUnit||0}));
+    stockUnit = cachedByName[0].stockUnit || 0;
   }
 
   // 아이템을 기존 상품으로 완전히 전환
+  // 바코드: A열 있으면 기존바코드, 없으면 스캔한 새 바코드 유지
+  const finalBarcode = (existingBarcode && existingBarcode.trim()) ? existingBarcode : newBarcode;
   item.name = existingName;
-  item.barcode = existingBarcode;
+  item.barcode = finalBarcode;
   item.source = 'sheet';
   item.isNew = false;
   item.showLinkPanel = false;
