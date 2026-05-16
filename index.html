@@ -399,22 +399,7 @@ function getBarcodeVariants(barcode) {
   if (norm.startsWith('88') && norm.length === 13) {
     variants.add('2' + norm.slice(3, 13));
   }
-  // 앞자리 잘린 경우 대응: 끝 8자리로 시트 상품과 매칭
-  if (norm.length >= 8) {
-    const suffix = norm.slice(-8);
-    for (const p of allSheetProducts) {
-      if (!p.barcode) continue;
-      const pnorm = normalizeBarcode(p.barcode);
-      if (pnorm.endsWith(suffix) && pnorm !== norm) variants.add(pnorm);
-      // extraBarcodes도 확인
-      if (p.extraBarcodes) {
-        for (const eb of p.extraBarcodes) {
-          const ebnorm = normalizeBarcode(eb);
-          if (ebnorm.endsWith(suffix) && ebnorm !== norm) variants.add(ebnorm);
-        }
-      }
-    }
-  }
+  // suffix 매칭 제거 (오매칭 원인)
   return [...variants];
 }
 
@@ -776,18 +761,19 @@ async function addScan(rawBarcode, m) {
       name = cachedAll[0].name;
       source = 'sheet';
       foundBarcode = v;
-      unitRows = cachedAll.map(cached => {
-        const u = parseUnit(cached.unitLabel || '묶음');
-        return {
-          rowIndex: cached.rowIndex || null,
-          unitLabel: cached.unitLabel || '묶음',
-          display: u.display,
-          qty: 0,
-          unitQty: u.qty,
-          stockBox: cached.stockBox || 0,
-          stockUnit: cached.stockUnit || 0
-        };
-      });
+      const _seenLabels2 = new Set();
+      unitRows = cachedAll
+        .filter(cached => {
+          const lb = (cached.unitLabel||'').trim();
+          if (_seenLabels2.has(lb)) return false;
+          _seenLabels2.add(lb); return true;
+        })
+        .map(cached => {
+          const u = parseUnit(cached.unitLabel || '묶음');
+          return {rowIndex:cached.rowIndex||null, unitLabel:cached.unitLabel||'묶음',
+            display:u.display, qty:0, unitQty:u.qty,
+            stockBox:cached.stockBox||0, stockUnit:cached.stockUnit||0};
+        });
       memo = cachedAll[0].memo || '';
       break;
     }
@@ -805,18 +791,18 @@ async function addScan(rawBarcode, m) {
           memo = data.rows[0].memo || '';
           source = 'sheet';
           foundBarcode = v;
-          unitRows = data.rows.map((r,i)=>{
-            const u = parseUnit(r.unitLabel);
-            return {
-              rowIndex: r.rowIndex,
-              unitLabel: r.unitLabel,
-              display: u.display,
-              qty: i===0?1:0,
-              unitQty: u.qty,
-              stockBox: r.stockBox||0,
-              stockUnit: r.stockUnit||0
-            };
-          });
+          const _seenLabels1 = new Set();
+          unitRows = data.rows
+            .filter(r => {
+              const lb = (r.unitLabel||'').trim();
+              if (_seenLabels1.has(lb)) return false;
+              _seenLabels1.add(lb); return true;
+            })
+            .map(r => {
+              const u = parseUnit(r.unitLabel);
+              return {rowIndex:r.rowIndex, unitLabel:r.unitLabel, display:u.display,
+                qty:0, unitQty:u.qty, stockBox:r.stockBox||0, stockUnit:r.stockUnit||0};
+            });
           // 캐시 저장
           sheetCache[v] = {name, unitRows, memo};
           break;
