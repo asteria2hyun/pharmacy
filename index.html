@@ -1188,26 +1188,45 @@ async function linkToExisting(m, id, existingBarcode, existingName) {
   item.stockUnit = stockUnit;
   item.showAddPanel = unitRows.length === 0;
 
-  // G열에 새 바코드 추가 (백그라운드)
-  if (newBarcode && newBarcode !== existingBarcode) {
-    fetch(DEFAULT_URL, {
-      method: 'POST',
-      headers: {'Content-Type': 'text/plain'},
-      body: JSON.stringify({ action: 'addExtraBarcode', existingBarcode, newBarcode })
-    }).then(r=>r.json()).then(data => {
-      if (data.success) {
-        const cached = allSheetProducts.find(p => p.barcode === existingBarcode);
-        if (cached) {
-          if (!cached.extraBarcodes) cached.extraBarcodes = [];
-          if (!cached.extraBarcodes.includes(newBarcode)) cached.extraBarcodes.push(newBarcode);
+  // 바코드 저장 (백그라운드)
+  if (newBarcode) {
+    const cached = allSheetProducts.find(p => p.barcode === existingBarcode || p.name === existingName);
+    const hasMainBarcode = cached && cached.barcode && cached.barcode.trim();
+
+    if (!hasMainBarcode) {
+      // A열이 비어있으면 → A열에 바코드 저장
+      fetch(DEFAULT_URL, {
+        method: 'POST',
+        headers: {'Content-Type': 'text/plain'},
+        body: JSON.stringify({ action: 'setMainBarcode', existingName, newBarcode, rowIndex: cached?.rowIndex })
+      }).then(r=>r.json()).then(data => {
+        if (data.success) {
+          if (cached) cached.barcode = newBarcode;
+          showToast(`✅ "${existingName}" A열 바코드 저장됨`, 'ok');
+        } else {
+          showToast('바코드 저장 실패: ' + (data.message||''), 'err');
         }
-        showToast(`✅ "${existingName}" 바코드 연결됨`, 'ok');
-      } else {
-        showToast('G열 연결 실패: ' + (data.message||''), 'err');
-      }
-    }).catch(() => showToast('연결 중 오류', 'err'));
-  } else {
-    showToast(`✅ "${existingName}" 선택됨`, 'ok');
+      }).catch(() => showToast('연결 중 오류', 'err'));
+    } else if (newBarcode !== existingBarcode) {
+      // A열에 다른 바코드가 있으면 → G열에 추가
+      fetch(DEFAULT_URL, {
+        method: 'POST',
+        headers: {'Content-Type': 'text/plain'},
+        body: JSON.stringify({ action: 'addExtraBarcode', existingBarcode, newBarcode })
+      }).then(r=>r.json()).then(data => {
+        if (data.success) {
+          if (cached) {
+            if (!cached.extraBarcodes) cached.extraBarcodes = [];
+            if (!cached.extraBarcodes.includes(newBarcode)) cached.extraBarcodes.push(newBarcode);
+          }
+          showToast(`✅ "${existingName}" G열 바코드 연결됨`, 'ok');
+        } else {
+          showToast('G열 연결 실패: ' + (data.message||''), 'err');
+        }
+      }).catch(() => showToast('연결 중 오류', 'err'));
+    } else {
+      showToast(`✅ "${existingName}" 선택됨`, 'ok');
+    }
   }
 
   renderPending(m);
