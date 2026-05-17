@@ -1543,30 +1543,45 @@ let prodLowFilter = false;
 
 // ── 대시보드 렌더링
 function renderDashboard() {
+  const inEl = document.getElementById('dash-in-count');
+  const outEl = document.getElementById('dash-out-count');
+  const lowEl = document.getElementById('dash-low-count');
+  const newEl = document.getElementById('dash-new-count');
+  if(!inEl) return;
+
   const today = new Date().toDateString();
   const week = Date.now() - 7*24*60*60*1000;
+  const logs = JSON.parse(localStorage.getItem('phHistory') || '[]');
 
-  // 오늘 입고/출고 품목수
-  const todayIn = new Set(histLog.filter(r=>r.type==='in'&&new Date(r.time).toDateString()===today).map(r=>r.name));
-  const todayOut = new Set(histLog.filter(r=>r.type==='out'&&new Date(r.time).toDateString()===today).map(r=>r.name));
-  document.getElementById('dash-in-count').textContent = todayIn.size;
-  document.getElementById('dash-out-count').textContent = todayOut.size;
+  // 1. 오늘 입고/출고 품목수
+  const todayIn = new Set(logs.filter(r=>r.type==='in'&&new Date(r.time).toDateString()===today).map(r=>r.name));
+  const todayOut = new Set(logs.filter(r=>r.type==='out'&&new Date(r.time).toDateString()===today).map(r=>r.name));
+  inEl.textContent = todayIn.size;
+  outEl.textContent = todayOut.size;
 
-  // 재고주의: 재고0 + 7일내 출고기록
-  const recentOutNames = new Set(histLog.filter(r=>r.type==='out'&&new Date(r.time).getTime()>week).map(r=>r.name));
-  const lowItems = allSheetProducts.filter(p => p.name && p.stockBox===0 && recentOutNames.has(p.name));
-  document.getElementById('dash-low-count').textContent = lowItems.length;
+  // 2. 재고주의: 최근 7일 출고된 품목 중 현재 재고 0
+  // allSheetProducts가 로드됐으면 실시간, 아니면 캐시 기반
+  const recentOutNames = new Set(logs.filter(r=>r.type==='out'&&new Date(r.time).getTime()>week).map(r=>r.name));
 
-  // 신규품목: 오늘 histLog에서 신규 추가된 것
-  const newToday = new Set(histLog.filter(r=>r.isNew&&new Date(r.time).toDateString()===today).map(r=>r.name));
-  document.getElementById('dash-new-count').textContent = newToday.size;
+  // 캐시된 재고 정보 활용 (새로고침 후에도 localStorage 캐시 사용)
+  const cachedProducts = JSON.parse(localStorage.getItem('phProductCache') || '[]');
+  const productsToCheck = allSheetProducts.length > 0 ? allSheetProducts : cachedProducts;
+  const lowItems = productsToCheck.filter(p => p.name && p.stockBox===0 && recentOutNames.has(p.name));
+  lowEl.textContent = lowItems.length;
+
+  // 3. 신규품목: 오늘 histLog에서 신규 추가된 것
+  const newToday = new Set(logs.filter(r=>r.isNew&&new Date(r.time).toDateString()===today).map(r=>r.name));
+  newEl.textContent = newToday.size;
 
   // 재고주의 리스트 - 날짜별 그룹
   const lowList = document.getElementById('dash-low-list');
   if(!lowItems.length){
-    lowList.innerHTML='<div style="padding:16px;text-align:center;font-size:12px;color:var(--text3)">재고주의 품목 없음 👍</div>';
+    if(recentOutNames.size === 0){
+      lowList.innerHTML='<div style="padding:16px;text-align:center;font-size:12px;color:var(--text3)">최근 7일 출고 기록 없음</div>';
+    } else {
+      lowList.innerHTML='<div style="padding:16px;text-align:center;font-size:12px;color:var(--text3)">재고주의 품목 없음 👍</div>';
+    }
   } else {
-    // 각 품목의 최근 출고 날짜 찾기
     const itemsWithDate = lowItems.map(p => {
       const lastOut = histLog
         .filter(r => r.type==='out' && r.name===p.name && new Date(r.time).getTime()>week)
@@ -1744,6 +1759,7 @@ async function saveProdEdit(barcode, name) {
   try{
     const res = await fetch(DEFAULT_URL,{method:'POST',headers:{'Content-Type':'text/plain'},
       body:JSON.stringify({action:'updateProduct',rowIndex:p.rowIndex,
+        sheetName:p.sheetName||p.sheet||'',
         name:newName,barcode:newBarcode,unitLabel:newUnit,
         stockBox:newStockBox,stockUnit:newStockUnit,memo:newMemo})});
     const d = await res.json();
