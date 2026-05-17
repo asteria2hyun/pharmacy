@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="ko">
 <head>
@@ -8,7 +7,7 @@
 <script src="https://unpkg.com/@zxing/library@0.19.1/umd/index.min.js"></script>
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<title>약국 재고관리</title>
+<title>수원스타약국 창고재고관리</title>
 
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
@@ -239,7 +238,7 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:1
       <div class="dot" id="sheetDot"></div><span id="sheetTxt">시트 연결</span>
     </div>
   </div>
-  <div class="tabs">
+  <div class="tabs" style="display:none">
     <button class="tab" id="tab-in"   onclick="goMode('in')">📦 입고</button>
     <button class="tab" id="tab-out"  onclick="goMode('out')">📤 출고</button>
     <button class="tab" id="tab-hist" onclick="goMode('hist')">📋 이력</button>
@@ -428,7 +427,7 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:1
   <button class="nav-btn" id="nav-out"  onclick="goMode('out')"><div class="nav-icon">📤</div><div class="nav-label">출고</div></button>
   <button class="nav-btn" id="nav-hist" onclick="goMode('hist')"><div class="nav-icon">📋</div><div class="nav-label">이력</div></button>
   <button class="nav-btn" id="nav-dash" onclick="goMode('dash')"><div class="nav-icon">📊</div><div class="nav-label">대시보드</div></button>
-  <button class="nav-btn" id="nav-prod" onclick="goMode('prod')"><div class="nav-icon">🏷️</div><div class="nav-label">품목</div></button>
+  <button class="nav-btn" id="nav-prod" onclick="goMode('prod')"><div class="nav-icon">🏷️</div><div class="nav-label">품목관리</div></button>
 </div>
 
 <script>
