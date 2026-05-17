@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="ko">
 <head>
@@ -1369,37 +1370,32 @@ async function commitAll(m) {
     }catch(e){}
   }
 
-  // pendingLink 처리 (확정 시 바코드 저장)
-  for(const item of cleared){
-    if(!item.pendingLink) continue;
-    const pl = item.pendingLink;
-    try {
+  // pendingLink 처리 - 백그라운드 (버튼 복구 후 실행)
+  setTimeout(() => {
+    for(const item of cleared){
+      if(!item.pendingLink) continue;
+      const pl = item.pendingLink;
       if(pl.type === 'setMain'){
         fetch(DEFAULT_URL,{method:'POST',headers:{'Content-Type':'text/plain'},
           body:JSON.stringify({action:'setMainBarcode',existingName:pl.existingName,newBarcode:pl.newBarcode,rowIndex:pl.rowIndex})
         }).then(r=>r.json()).then(d=>{
-          if(d.success){
-            const c=allSheetProducts.find(p=>p.name===pl.existingName);
-            if(c) c.barcode=pl.newBarcode;
-          }
-        });
+          if(d.success){const c=allSheetProducts.find(p=>p.name===pl.existingName);if(c)c.barcode=pl.newBarcode;}
+        }).catch(()=>{});
       } else if(pl.type === 'addExtra'){
         fetch(DEFAULT_URL,{method:'POST',headers:{'Content-Type':'text/plain'},
           body:JSON.stringify({action:'addExtraBarcode',existingBarcode:pl.existingBarcode,newBarcode:pl.newBarcode})
         }).then(r=>r.json()).then(d=>{
-          if(d.success){
-            const c=allSheetProducts.find(p=>p.barcode===pl.existingBarcode);
-            if(c){if(!c.extraBarcodes)c.extraBarcodes=[];if(!c.extraBarcodes.includes(pl.newBarcode))c.extraBarcodes.push(pl.newBarcode);}
-          }
-        });
+          if(d.success){const c=allSheetProducts.find(p=>p.barcode===pl.existingBarcode);if(c){if(!c.extraBarcodes)c.extraBarcodes=[];if(!c.extraBarcodes.includes(pl.newBarcode))c.extraBarcodes.push(pl.newBarcode);}}
+        }).catch(()=>{});
       }
-    } catch(e){}
-  }
+    }
+  }, 0);
   btn.disabled=false; spin.style.display='none';
   txt.textContent=m==='in'?'✅ 입고 전체 확정':'✅ 출고 전체 확정';
   const cleared=[...list];
   if(m==='in')pendingIn=[];else pendingOut=[];
   renderPending(m);
+  if(document.getElementById('dash-in-count')) renderDashboard();
   showToast(`${m==='in'?'📦입고':'📤출고'} ${cleared.length}개 품목 완료${sheetUrl?(sheetOk?' · 시트반영':' · 로컬저장'):''}`, 'ok');
   // 대시보드 실시간 갱신
   if(document.getElementById('dash-in-count')) renderDashboard();
