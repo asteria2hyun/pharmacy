@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="ko">
 <head>
@@ -7,7 +8,7 @@
 <script src="https://unpkg.com/@zxing/library@0.19.1/umd/index.min.js"></script>
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<title>수원스타약국 창고재고관리</title>
+<title>약국 재고관리</title>
 
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
@@ -232,7 +233,7 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:1
   <div class="header-row">
     <div class="logo">
       <div class="logo-mark">💊</div>
-      <div><div class="logo-name">수원스타약국 창고재고관리</div><div class="logo-sub">Suwonstarpharm</div></div>
+      <div><div class="logo-name">약국 재고관리</div><div class="logo-sub">v6 Final</div></div>
     </div>
     <div class="sheet-pill" onclick="goMode('cfg')">
       <div class="dot" id="sheetDot"></div><span id="sheetTxt">시트 연결</span>
@@ -427,7 +428,7 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:1
   <button class="nav-btn" id="nav-out"  onclick="goMode('out')"><div class="nav-icon">📤</div><div class="nav-label">출고</div></button>
   <button class="nav-btn" id="nav-hist" onclick="goMode('hist')"><div class="nav-icon">📋</div><div class="nav-label">이력</div></button>
   <button class="nav-btn" id="nav-dash" onclick="goMode('dash')"><div class="nav-icon">📊</div><div class="nav-label">대시보드</div></button>
-  <button class="nav-btn" id="nav-prod" onclick="goMode('prod')"><div class="nav-icon">🏷️</div><div class="nav-label">품목관리</div></button>
+  <button class="nav-btn" id="nav-prod" onclick="goMode('prod')"><div class="nav-icon">🏷️</div><div class="nav-label">품목</div></button>
 </div>
 
 <script>
@@ -565,6 +566,8 @@ function goMode(m) {
   document.getElementById('nav-'+m).classList.add(nm[m]);
   if (m==='in'||m==='out') renderPending(m);
   if (m==='hist') renderHistory();
+  if (m==='dash') renderDashboard();
+  if (m==='prod') renderProducts(document.getElementById('prod-search')?.value||'');
 }
 
 // ═══════════════════════════════════════
