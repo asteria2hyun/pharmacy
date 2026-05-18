@@ -1808,24 +1808,7 @@ function clearProdFilter() {
 }
 
 // ── 품목 수정 모달
-function openProdEdit(barcode, name) {
-  const p = allSheetProducts.find(x=>x.barcode===barcode||x.name===name);
-  if(!p){showToast('품목 정보 없음','err');return;}
-  const memo = prompt(`[${p.name}]
-현재 참고사항: ${p.memo||'없음'}
 
-새 참고사항 입력 (취소시 변경없음):`, p.memo||'');
-  if(memo===null) return;
-  // 시트 업데이트
-  fetch(DEFAULT_URL,{method:'POST',headers:{'Content-Type':'text/plain'},
-    body:JSON.stringify({action:'updateMemo',rowIndex:p.rowIndex,memo})
-  }).then(r=>r.json()).then(d=>{
-    if(d.success){p.memo=memo;showToast('참고사항 저장됨','ok');}
-    else showToast('저장 실패','err');
-  }).catch(()=>showToast('저장 오류','err'));
-}
-
-let _tt;
 function showToast(msg,type=''){
   const el=document.getElementById('toast');
   el.textContent=msg; el.className='toast show'+(type?' '+type:'');
