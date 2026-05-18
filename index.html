@@ -499,6 +499,23 @@ function init() {
   }
   // 백그라운드로 최신 데이터 로드
   loadAllProducts();
+  // 오늘 이력 시트에서 로드 (기기간 공유)
+  loadTodayHistory();
+}
+
+// ── 오늘 이력 시트에서 로드 (기기간 공유)
+async function loadTodayHistory() {
+  if (!sheetUrl) return;
+  try {
+    const data = await jsonpFetch(`${sheetUrl}?action=getTodayHistory`);
+    if (data?.success && data.history?.length) {
+      const today = new Date().toDateString();
+      // 기존 로컬 이력에서 오늘 것 제거 후 시트 데이터로 교체
+      const otherDays = histLog.filter(r => new Date(r.time).toDateString() !== today);
+      histLog = [...data.history, ...otherDays];
+      localStorage.setItem('phHistory', JSON.stringify(histLog));
+    }
+  } catch(e) {}
 }
 
 async function loadAllProducts() {
