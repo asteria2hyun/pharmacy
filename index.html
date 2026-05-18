@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="ko">
 <head>
@@ -1435,12 +1436,15 @@ function renderHistory() {
     const origIdx=histLog.findIndex(x=>x===r);
     const t=new Date(r.time).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'});
     const sign=r.type==='in'?'+':'-';
-    const unitStr=(r.unitRows||[]).map(u=>`${sign}${u.qty}${u.display}`).join(', ');
-    const extraStr=r.extraUnits>0?` ${sign}${r.extraUnits}낱개`:'';
+    const unitStr=(r.unitRows||[]).map(u=>{
+      const label=u.display||u.unitLabel||'';
+      return `<span style="color:var(--text2);font-size:11px">${label}</span> <span style="font-weight:800">${sign}${u.qty}</span>`;
+    }).join(' &nbsp;·&nbsp; ');
+    const extraStr=r.extraUnits>0?` &nbsp;·&nbsp; <span style="color:var(--text2);font-size:11px">낱개</span> <span style="font-weight:800">${sign}${r.extraUnits}</span>`:'';
     return `<div class="hist-item">
       <div class="hi-badge ${r.type}">${r.type==='in'?'📦':'📤'}</div>
       <div class="hi-body"><div class="hi-name">${escHtml(r.name)}</div><div class="hi-meta">${t}${r.type==='in'?' · 입고':' · 출고'}</div></div>
-      <div class="hi-qty ${r.type}">${unitStr}${extraStr}</div>
+      <div class="hi-qty ${r.type}" style="text-align:right;line-height:1.8">${unitStr}${extraStr}</div>
       <button class="hist-cancel-btn" onclick="cancelHistory(${origIdx})" title="취소">✕</button>
     </div>`;
   }).join('');
