@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="ko">
 <head>
@@ -632,8 +631,8 @@ function onSearch(m, query) {
 
   drop.innerHTML = scored.map((p, i) => `
     <div class="sd-item" id="sdi-${m}-${i}"
-      onmousedown="selectFromSearch('${m}','${esc(p.barcode||'')}','${esc(p.name)}')"
-      ontouchstart="selectFromSearch('${m}','${esc(p.barcode||'')}','${esc(p.name)}')">
+      onclick="selectFromSearch('${m}','${esc(p.barcode||'')}','${esc(p.name)}')"
+      data-touch="selectFromSearch('${m}','${esc(p.barcode||'')}','${esc(p.name)}')">
       <div class="sd-name">${escHtml(p.name)}</div>
       <div class="sd-bc">${p.barcode||'바코드없음'}</div>
     </div>`).join('');
@@ -1074,7 +1073,10 @@ function renderPending(m) {
                   <div style="padding:6px 10px;font-size:10px;color:var(--text3);border-bottom:1px solid var(--border)">기존 상품 선택 시 바코드 연결 / 미선택 시 신규 추가</div>
                 </div>
               </div>`
-            : `<div class="pi-name">${escHtml(item.name)}</div>`}
+            : `<div style="display:flex;align-items:center;gap:6px">
+                <div class="pi-name">${escHtml(item.name)}</div>
+                <button onclick="openChangeProduct('${m}','${item.id}')" style="font-size:10px;color:var(--text3);background:var(--surface2);border:1px solid var(--border);border-radius:5px;padding:2px 7px;cursor:pointer;font-family:var(--sans);white-space:nowrap;flex-shrink:0">변경</button>
+              </div>`}
           <div class="pi-barcode">${escHtml(item.barcode)||'바코드없음'}</div>
           <span class="pi-source ${srcClass}">${srcLabel}</span>
         </div>
@@ -1208,7 +1210,7 @@ function onNewItemSearch(m, id, query) {
   }
 
   drop.innerHTML = header + results.map(p =>
-    `<div onmousedown="linkToExisting('${m}','${id}','${esc(p.barcode||'')}','${esc(p.name)}')"
+    `<div onclick="linkToExisting('${m}','${id}','${esc(p.barcode||'')}','${esc(p.name)}')"
       style="padding:8px 12px;cursor:pointer;font-size:13px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border)"
       onmouseover="this.style.background='var(--accent-bg)'" onmouseout="this.style.background=''">
       <span style="font-weight:600">${escHtml(p.name)}</span>
@@ -1216,6 +1218,112 @@ function onNewItemSearch(m, id, query) {
     </div>`
   ).join('');
   drop.style.display = 'block';
+}
+
+// 상품 변경 모달 (잘못 매칭된 경우)
+function openChangeProduct(m, id) {
+  const l = m==='in'?pendingIn:pendingOut;
+  const item = l.find(x=>String(x.id)===String(id));
+  if(!item) return;
+
+  const existing = document.getElementById('change-prod-modal');
+  if(existing) existing.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'change-prod-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:300;display:flex;align-items:flex-end;justify-content:center';
+  modal.innerHTML = `
+    <div style="background:var(--surface);border-radius:16px 16px 0 0;padding:20px 16px;width:100%;max-width:480px;max-height:80vh;overflow-y:auto">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <div style="font-size:14px;font-weight:700">상품 변경</div>
+        <button onclick="document.getElementById('change-prod-modal').remove()" style="width:28px;height:28px;border:none;background:var(--surface2);border-radius:50%;font-size:16px;cursor:pointer">✕</button>
+      </div>
+      <div style="font-size:11px;color:var(--text2);margin-bottom:10px">바코드 <span style="font-family:var(--mono);font-weight:600">${escHtml(item.barcode)}</span>를 연결할 상품 검색</div>
+      <div style="font-size:11px;background:var(--red-bg);color:var(--red);padding:8px 10px;border-radius:8px;margin-bottom:12px">
+        기존 <b>${escHtml(item.name)}</b>에서 이 바코드가 삭제되고 새 상품에 저장됩니다
+      </div>
+      <div style="position:relative;margin-bottom:8px">
+        <input id="change-search-input" style="width:100%;padding:10px 12px;border:2px solid var(--accent);border-radius:8px;font-size:13px;font-family:var(--sans);outline:none;color:var(--text)"
+          placeholder="변경할 상품명 검색..." oninput="onChangeSearch(this.value,'${m}','${id}')">
+      </div>
+      <div id="change-search-results" style="max-height:200px;overflow-y:auto"></div>
+    </div>`;
+  document.body.appendChild(modal);
+  modal.addEventListener('click', e=>{ if(e.target===modal) modal.remove(); });
+  setTimeout(()=>document.getElementById('change-search-input')?.focus(), 100);
+}
+
+function onChangeSearch(query, m, id) {
+  const results = document.getElementById('change-search-results');
+  if(!results) return;
+  if(!query.trim()) { results.innerHTML=''; return; }
+  const q = query.toLowerCase();
+  const items = allSheetProducts.filter(p=>p.name&&p.name.toLowerCase().includes(q)).slice(0,15);
+  if(!items.length){ results.innerHTML='<div style="padding:12px;font-size:12px;color:var(--text3)">검색 결과 없음</div>'; return; }
+  results.innerHTML = items.map(p=>`
+    <div onclick="confirmChangeProduct('${m}','${id}','${esc(p.barcode||'')}','${esc(p.name)}')"
+      style="padding:10px 12px;cursor:pointer;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center"
+      onmouseover="this.style.background='var(--accent-bg)'" onmouseout="this.style.background=''">
+      <div>
+        <div style="font-size:13px;font-weight:600">${escHtml(p.name)}</div>
+        <div style="font-size:10px;color:var(--text3);font-family:var(--mono)">${escHtml(p.barcode||'바코드없음')}</div>
+      </div>
+      <div style="font-size:12px;font-weight:700;color:${p.stockBox===0?'var(--red)':'var(--text2)'}">재고 ${p.stockBox}</div>
+    </div>`).join('');
+}
+
+async function confirmChangeProduct(m, id, newMainBarcode, newName) {
+  const l = m==='in'?pendingIn:pendingOut;
+  const item = l.find(x=>String(x.id)===String(id));
+  if(!item) return;
+
+  const scannedBarcode = item.barcode;
+  const oldName = item.name;
+  const oldBarcode = item.barcode; // 스캔된 바코드
+
+  document.getElementById('change-prod-modal')?.remove();
+  showToast('상품 변경 중...', '');
+
+  try {
+    // 1. 기존 상품(B상품)에서 스캔된 바코드 삭제
+    await fetch(DEFAULT_URL, {method:'POST', headers:{'Content-Type':'text/plain'},
+      body: JSON.stringify({action:'removeBarcode', targetName:oldName, barcodeToRemove:scannedBarcode})
+    });
+
+    // 2. 새 상품(A상품)에 바코드 추가 (A열 비어있으면 A열, 있으면 G열)
+    const newProd = allSheetProducts.find(p=>p.barcode===newMainBarcode||p.name===newName);
+    const hasMain = newProd?.barcode && newProd.barcode.trim();
+    if(!hasMain) {
+      await fetch(DEFAULT_URL, {method:'POST', headers:{'Content-Type':'text/plain'},
+        body: JSON.stringify({action:'setMainBarcode', existingName:newName, newBarcode:scannedBarcode})
+      });
+      if(newProd) newProd.barcode = scannedBarcode;
+    } else {
+      await fetch(DEFAULT_URL, {method:'POST', headers:{'Content-Type':'text/plain'},
+        body: JSON.stringify({action:'addExtraBarcode', existingBarcode:newMainBarcode, newBarcode:scannedBarcode})
+      });
+      if(newProd?.extraBarcodes) newProd.extraBarcodes.push(scannedBarcode);
+    }
+
+    // 3. 아이템 교체
+    item.name = newName;
+    item.barcode = newMainBarcode || scannedBarcode;
+    item.source = 'sheet';
+    item.isNew = false;
+
+    // 단위 로드
+    if(newProd) {
+      const seenL = new Set();
+      const newProds = allSheetProducts.filter(p=>p.name===newName);
+      item.unitRows = newProds.filter(p=>{const lb=(p.unitLabel||'').trim();if(seenL.has(lb))return false;seenL.add(lb);return true;})
+        .map(p=>({rowIndex:p.rowIndex,unitLabel:p.unitLabel,display:parseUnit(p.unitLabel).display,qty:0,unitQty:parseUnit(p.unitLabel).qty,stockBox:p.stockBox||0,stockUnit:p.stockUnit||0}));
+    }
+
+    showToast(`✅ ${newName}으로 변경됨`, 'ok');
+    renderPending(m);
+  } catch(e) {
+    showToast('변경 실패', 'err');
+  }
 }
 
 // 기존 상품 선택 → G열에 바코드 연결 + 기존 상품 데이터로 교체
@@ -1264,6 +1372,11 @@ async function linkToExisting(m, id, existingBarcode, existingName) {
         display:parseUnit(c.unitLabel).display, qty:0, unitQty:parseUnit(c.unitLabel).qty,
         stockBox:c.stockBox||0, stockUnit:c.stockUnit||0}));
     stockUnit = cachedByName[0].stockUnit || 0;
+  }
+
+  // 그래도 없으면 기본 단위로 진행 (신규 상품)
+  if (!unitRows.length) {
+    unitRows = [{rowIndex:null, unitLabel:'묶음', display:'묶음', qty:0, unitQty:1, stockBox:0, stockUnit:0}];
   }
 
   // 아이템을 기존 상품으로 완전히 전환
@@ -1661,8 +1774,7 @@ function onProdSearch(query) {
 
   drop.innerHTML = results.map((p,i) => `
     <div class="sd-item" id="pdrop-${i}"
-      onmousedown="selectProdFromDrop('${esc(p.barcode||'')}','${esc(p.name)}')"
-      ontouchstart="selectProdFromDrop('${esc(p.barcode||'')}','${esc(p.name)}')">
+      onclick="selectProdFromDrop('${esc(p.barcode||'')}','${esc(p.name)}')">
       <div class="sd-name">${escHtml(p.name)}</div>
       <div style="display:flex;justify-content:space-between;margin-top:2px">
         <span class="sd-bc">${escHtml(p.barcode||'바코드없음')}</span>
