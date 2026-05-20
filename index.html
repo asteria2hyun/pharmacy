@@ -1353,8 +1353,8 @@ async function confirmChangeProduct(m, id, newMainBarcode, newName) {
   }
 }
 
-// 기존 상품 선택 → G열에 바코드 연결 + 기존 상품 데이터로 교체
-async function linkToExisting(m, id, existingBarcode, existingName) {
+// 기존 상품 선택 → 캐시에서 즉시 매칭 + 바코드 연결은 백그라운드
+function linkToExisting(m, id, existingBarcode, existingName) {
   const l = m==='in'?pendingIn:pendingOut;
   const item = l.find(x=>String(x.id)===String(id));
   if (!item) return;
@@ -1365,52 +1365,38 @@ async function linkToExisting(m, id, existingBarcode, existingName) {
   const drop = document.getElementById('new-drop-' + String(id).replace('.','_'));
   if (drop) drop.style.display = 'none';
 
-  showToast('상품 정보 불러오는 중...', '');
-
-  // 기존 상품 데이터 - rowIndex로 조회 (바코드 없어도 됨)
+  // ── 1. 로컬 캐시에서 즉시 단위/재고 정보 가져오기 (네트워크 없음)
   let unitRows = [];
   let stockUnit = 0;
 
-  // 먼저 로컬 캐시에서 이름으로 찾기
-  const cachedByName = allSheetProducts.filter(p => p.name === existingName);
+  // 바코드로 먼저 찾고, 없으면 이름으로 찾기
+  const cachedList = allSheetProducts.filter(p =>
+    (existingBarcode && existingBarcode.trim() && p.barcode === existingBarcode) ||
+    p.name === existingName
+  );
 
-  if (existingBarcode && existingBarcode.trim()) {
-    // A열에 바코드 있는 경우 - 바코드로 시트 조회
-    try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 5000);
-      const res = await fetch(`${DEFAULT_URL}?action=getProduct&barcode=${encodeURIComponent(existingBarcode)}`, {signal: controller.signal});
-      clearTimeout(timer);
-      const data = await res.json();
-      if (data.success && data.rows?.length) {
-        const seen = new Set();
-        unitRows = data.rows
-          .filter(r => { const lb=(r.unitLabel||'').trim(); if(seen.has(lb))return false; seen.add(lb); return true; })
-          .map(r => ({rowIndex:r.rowIndex, unitLabel:r.unitLabel, display:parseUnit(r.unitLabel).display,
-            qty:0, unitQty:parseUnit(r.unitLabel).qty, stockBox:r.stockBox||0, stockUnit:r.stockUnit||0}));
-        stockUnit = data.rows[0].stockUnit || 0;
-      }
-    } catch(e) {}
-  }
-
-  // 바코드 없거나 조회 실패 시 - 캐시에서 이름으로 찾기
-  if (!unitRows.length && cachedByName.length) {
+  if (cachedList.length) {
     const seen = new Set();
-    unitRows = cachedByName
+    unitRows = cachedList
       .filter(c => { const lb=(c.unitLabel||'').trim(); if(seen.has(lb))return false; seen.add(lb); return true; })
-      .map(c => ({rowIndex:c.rowIndex||null, unitLabel:c.unitLabel||'',
-        display:parseUnit(c.unitLabel).display, qty:0, unitQty:parseUnit(c.unitLabel).qty,
-        stockBox:c.stockBox||0, stockUnit:c.stockUnit||0}));
-    stockUnit = cachedByName[0].stockUnit || 0;
+      .map(c => ({
+        rowIndex: c.rowIndex||null,
+        unitLabel: c.unitLabel||'묶음',
+        display: parseUnit(c.unitLabel||'묶음').display,
+        qty: 0,
+        unitQty: parseUnit(c.unitLabel||'묶음').qty,
+        stockBox: c.stockBox||0,
+        stockUnit: c.stockUnit||0
+      }));
+    stockUnit = cachedList[0].stockUnit || 0;
   }
 
-  // 그래도 없으면 기본 단위로 진행 (신규 상품)
+  // 캐시에도 없으면 기본 묶음 단위로
   if (!unitRows.length) {
     unitRows = [{rowIndex:null, unitLabel:'묶음', display:'묶음', qty:0, unitQty:1, stockBox:0, stockUnit:0}];
   }
 
-  // 아이템을 기존 상품으로 완전히 전환
-  // 바코드: A열 있으면 기존바코드, 없으면 스캔한 새 바코드 유지
+  // ── 2. 아이템 즉시 전환 (동기, 블로킹 없음)
   const finalBarcode = (existingBarcode && existingBarcode.trim()) ? existingBarcode : newBarcode;
   item.name = existingName;
   item.barcode = finalBarcode;
@@ -1419,9 +1405,12 @@ async function linkToExisting(m, id, existingBarcode, existingName) {
   item.showLinkPanel = false;
   item.unitRows = unitRows;
   item.stockUnit = stockUnit;
-  item.showAddPanel = unitRows.length === 0;
+  item.showAddPanel = false;
 
-  // 바코드 저장 (백그라운드)
+  renderPending(m);
+  showToast(`✅ "${existingName}" 선택됨`, 'ok');
+
+  // ── 3. 바코드 저장은 완전 백그라운드 (UI 블로킹 없음)
   if (newBarcode) {
     const cached = allSheetProducts.find(p => p.barcode === existingBarcode || p.name === existingName);
     const hasMainBarcode = cached && cached.barcode && cached.barcode.trim();
@@ -1435,11 +1424,9 @@ async function linkToExisting(m, id, existingBarcode, existingName) {
       }).then(r=>r.json()).then(data => {
         if (data.success) {
           if (cached) cached.barcode = newBarcode;
-          showToast(`✅ "${existingName}" A열 바코드 저장됨`, 'ok');
-        } else {
-          showToast('바코드 저장 실패: ' + (data.message||''), 'err');
+          showToast(`📎 "${existingName}" 바코드 저장됨`, 'ok');
         }
-      }).catch(() => showToast('연결 중 오류', 'err'));
+      }).catch(() => {});
     } else if (newBarcode !== existingBarcode) {
       // A열에 다른 바코드가 있으면 → G열에 추가
       fetch(DEFAULT_URL, {
@@ -1452,17 +1439,11 @@ async function linkToExisting(m, id, existingBarcode, existingName) {
             if (!cached.extraBarcodes) cached.extraBarcodes = [];
             if (!cached.extraBarcodes.includes(newBarcode)) cached.extraBarcodes.push(newBarcode);
           }
-          showToast(`✅ "${existingName}" G열 바코드 연결됨`, 'ok');
-        } else {
-          showToast('G열 연결 실패: ' + (data.message||''), 'err');
+          showToast(`📎 "${existingName}" 바코드 연결됨`, 'ok');
         }
-      }).catch(() => showToast('연결 중 오류', 'err'));
-    } else {
-      showToast(`✅ "${existingName}" 선택됨`, 'ok');
+      }).catch(() => {});
     }
   }
-
-  renderPending(m);
 }
 
 function updateName(m,id,val){
