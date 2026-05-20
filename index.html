@@ -1503,6 +1503,18 @@ async function commitAll(m) {
     if(histLog.length>300)histLog.pop();
   }
   localStorage.setItem('phHistory',JSON.stringify(histLog));
+
+  // 로컬 캐시 stockBox/stockUnit 즉시 업데이트 (취소 시 역산 기준값 유지)
+  for(const rec of records){
+    if(rec.isUnit){
+      const cp=allSheetProducts.find(p=>p.name===rec.name);
+      if(cp) cp.stockUnit=rec.newStockUnit;
+    } else {
+      const cp=allSheetProducts.find(p=>(rec.rowIndex&&p.rowIndex===rec.rowIndex)||(p.name===rec.name&&p.unitLabel===rec.unitLabel));
+      if(cp) cp.stockBox=rec.newStockBox;
+    }
+  }
+
   let sheetOk=false;
   if(sheetUrl){
     try{
@@ -1584,12 +1596,12 @@ async function cancelHistory(idx) {
 
   for(const u of (r.unitRows||[])){
     if(!u.qty) continue;
-    // 이름+단위로 매칭 (모든 단위행 검색)
     const matchRows=allSheetProducts.filter(p=>p.name===r.name);
-    const matchRow=matchRows.find(p=>p.unitLabel===u.display||p.unitLabel===u.unitLabel||p.unitLabel===u.display?.replace(/\(.*\)/,'').trim())||matchRows[0];
+    const matchRow=matchRows.find(p=>p.unitLabel===u.display||p.unitLabel===u.unitLabel)||matchRows[0];
+    // 현재 시트의 실제 재고 기준으로 역산 (로컬캐시가 최신이면 정확)
     const stockBox=matchRow?.stockBox||0;
     const newStockBox=reverseType==='in'?stockBox+u.qty:Math.max(0,stockBox-u.qty);
-    if(matchRow) matchRow.stockBox=newStockBox;
+    if(matchRow) matchRow.stockBox=newStockBox; // 로컬캐시도 즉시 반영
     records.push({
       rowIndex:matchRow?.rowIndex||null,
       barcode:r.barcode||matchRow?.barcode||'',
