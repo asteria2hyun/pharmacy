@@ -524,6 +524,7 @@ async function loadAllProducts() {
   if (cached) {
     try {
       allSheetProducts = JSON.parse(cached);
+      cacheReady = true; // 캐시 있으면 즉시 사용 가능
     } catch(e) {}
   }
   // 백그라운드에서 최신 데이터 로드
@@ -533,7 +534,10 @@ async function loadAllProducts() {
       allSheetProducts = data.products;
       localStorage.setItem('phProductCache', JSON.stringify(data.products));
     }
-  } catch(e) {}
+  } catch(e) {
+    if (!cacheReady) showToast('⚠ 시트 연결 실패 (로컬 캐시 없음)', 'err');
+    else showToast('⚠ 최신 데이터 로드 실패, 캐시 사용 중', 'warn');
+  }
   // 캐시 로드 완료 표시
   cacheReady = true;
 }
@@ -542,20 +546,39 @@ function jsonpFetch(url) {
   return new Promise((resolve, reject) => {
     const cbName = 'cb_' + Date.now();
     const script = document.createElement('script');
-    window[cbName] = function(data) {
+    let settled = false;
+
+    // 10초 timeout
+    const timeoutId = setTimeout(() => {
+      if (settled) return;
+      settled = true;
       delete window[cbName];
-      document.head.removeChild(script);
+      if (document.head.contains(script)) document.head.removeChild(script);
+      reject(new Error('jsonpFetch timeout'));
+    }, 10000);
+
+    window[cbName] = function(data) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutId);
+      delete window[cbName];
+      if (document.head.contains(script)) document.head.removeChild(script);
       resolve(data);
     };
     script.src = url + (url.includes('?') ? '&' : '?') + 'callback=' + cbName;
     script.onerror = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutId);
       delete window[cbName];
-      document.head.removeChild(script);
-      // JSONP 실패시 fetch로 재시도
-      fetch(url, {mode: 'cors', redirect: 'follow'})
+      if (document.head.contains(script)) document.head.removeChild(script);
+      // JSONP 실패시 fetch로 재시도 (5초 timeout)
+      const controller = new AbortController();
+      const fetchTimer = setTimeout(() => controller.abort(), 5000);
+      fetch(url, {mode: 'cors', redirect: 'follow', signal: controller.signal})
         .then(r => r.json())
-        .then(resolve)
-        .catch(reject);
+        .then(d => { clearTimeout(fetchTimer); resolve(d); })
+        .catch(e => { clearTimeout(fetchTimer); reject(e); });
     };
     document.head.appendChild(script);
   });
@@ -830,7 +853,11 @@ async function addScan(rawBarcode, m) {
   // 캐시 로드가 안 됐으면 먼저 로드
   if (!cacheReady && sheetUrl) {
     showToast('⏳ 상품 목록 로딩 중...', '');
-    await loadAllProducts();
+    await Promise.race([
+      loadAllProducts(),
+      new Promise(resolve => setTimeout(resolve, 5000))
+    ]);
+    cacheReady = true;
   }
   
 
