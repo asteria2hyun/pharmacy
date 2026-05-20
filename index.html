@@ -1350,7 +1350,10 @@ async function linkToExisting(m, id, existingBarcode, existingName) {
   if (existingBarcode && existingBarcode.trim()) {
     // A열에 바코드 있는 경우 - 바코드로 시트 조회
     try {
-      const res = await fetch(`${DEFAULT_URL}?action=getProduct&barcode=${encodeURIComponent(existingBarcode)}`);
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 5000);
+      const res = await fetch(`${DEFAULT_URL}?action=getProduct&barcode=${encodeURIComponent(existingBarcode)}`, {signal: controller.signal});
+      clearTimeout(timer);
       const data = await res.json();
       if (data.success && data.rows?.length) {
         const seen = new Set();
@@ -1502,6 +1505,7 @@ async function commitAll(m) {
     }catch(e){}
   }
 
+  const cleared=[...list];
   // pendingLink 처리 - 백그라운드 (버튼 복구 후 실행)
   setTimeout(() => {
     for(const item of cleared){
@@ -1524,7 +1528,6 @@ async function commitAll(m) {
   }, 0);
   btn.disabled=false; spin.style.display='none';
   txt.textContent=m==='in'?'✅ 입고 전체 확정':'✅ 출고 전체 확정';
-  const cleared=[...list];
   if(m==='in')pendingIn=[];else pendingOut=[];
   renderPending(m);
   if(document.getElementById('dash-in-count')) renderDashboard();
