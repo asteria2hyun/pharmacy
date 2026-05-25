@@ -986,14 +986,27 @@ async function addScanByName(name, m) {
   if (sheetP && sheetP.barcode) {
     await addScan(sheetP.barcode, m); return;
   }
-  // 이름만으로 직접 추가
+  // 바코드 없어도 캐시에서 단위/재고 가져오기
+  const sheetRows = allSheetProducts.filter(p=>p.name===name);
+  let unitRows;
+  let stockUnit = 0;
+  if (sheetRows.length) {
+    const seen = new Set();
+    unitRows = sheetRows
+      .filter(r=>{ const lb=(r.unitLabel||'').trim(); if(seen.has(lb))return false; seen.add(lb); return true; })
+      .map(r=>({rowIndex:r.rowIndex, unitLabel:r.unitLabel||'묶음', display:parseUnit(r.unitLabel||'묶음').display,
+        qty:0, unitQty:parseUnit(r.unitLabel||'묶음').qty, stockBox:r.stockBox||0, stockUnit:r.stockUnit||0}));
+    if (unitRows.length) unitRows[0].qty = 1;
+    stockUnit = sheetRows[0].stockUnit || 0;
+  } else {
+    unitRows = [{rowIndex:null, unitLabel:'묶음', display:'묶음', qty:1, unitQty:1, stockBox:0, stockUnit:0}];
+  }
   const item = {
     id: Date.now(),
-    barcode: '',
-    name, memo: '', source: 'search',
+    barcode: sheetP?.barcode || '',
+    name, memo: sheetP?.memo||'', source: 'search',
     isNew: false,
-    unitRows: [{rowIndex:null,unitLabel:'묶음',display:'묶음',qty:1,unitQty:1,stockBox:0,stockUnit:0}],
-    selectedUnit:0, extraUnits:0, stockUnit:0, showAddPanel:false
+    unitRows, selectedUnit:0, extraUnits:0, stockUnit, showAddPanel:false
   };
   list.unshift(item);
   renderPending(m);
@@ -1498,7 +1511,7 @@ async function commitAll(m) {
         prevStockUnit:item.stockUnit||0,newStockUnit,isUnit:true,time:now.toISOString()});
     }
     histLog.unshift({barcode:item.barcode,name,type:m,
-      unitRows:item.unitRows.filter(u=>u.qty>0).map(u=>({display:u.display,qty:u.qty})),
+      unitRows:item.unitRows.filter(u=>u.qty>0).map(u=>({display:u.display,qty:u.qty,unitLabel:u.unitLabel,rowIndex:u.rowIndex,prevStockBox:u.stockBox,newStockBox:m==='in'?(u.stockBox+u.qty):(u.stockBox-u.qty)})),
       extraUnits:item.extraUnits||0,time:now.toISOString()});
     if(histLog.length>300)histLog.pop();
   }
@@ -1526,8 +1539,12 @@ async function commitAll(m) {
     }catch(e){}
   }
 
+  // ← 시트 응답 받은 후에 버튼 복구 (연속 저장 충돌 방지)
+  btn.disabled=false; spin.style.display='none';
+  txt.textContent=m==='in'?'✅ 입고 전체 확정':'✅ 출고 전체 확정';
+
   const cleared=[...list];
-  // pendingLink 처리 - 백그라운드 (버튼 복구 후 실행)
+  // pendingLink 처리 - 백그라운드
   setTimeout(() => {
     for(const item of cleared){
       if(!item.pendingLink) continue;
@@ -1547,8 +1564,6 @@ async function commitAll(m) {
       }
     }
   }, 0);
-  btn.disabled=false; spin.style.display='none';
-  txt.textContent=m==='in'?'✅ 입고 전체 확정':'✅ 출고 전체 확정';
   if(m==='in')pendingIn=[];else pendingOut=[];
   renderPending(m);
   if(document.getElementById('dash-in-count')) renderDashboard();
@@ -1578,10 +1593,17 @@ function renderHistory() {
       return `<span style="color:var(--text2);font-size:11px">${label}</span> <span style="font-weight:800">${sign}${u.qty}</span>`;
     }).join(' &nbsp;·&nbsp; ');
     const extraStr=r.extraUnits>0?` &nbsp;·&nbsp; <span style="color:var(--text2);font-size:11px">낱개</span> <span style="font-weight:800">${sign}${r.extraUnits}</span>`:'';
+    // 최종 재고 표시
+    const finalStock = r.isUnit
+      ? (r.newStockUnit !== undefined ? r.newStockUnit : r.newStock)
+      : (r.unitRows?.[0]?.newStockBox !== undefined ? r.unitRows[0].newStockBox : r.newStock);
+    const stockStr = finalStock !== undefined
+      ? `<div style="font-size:10px;color:var(--text3);margin-top:2px">재고 ${finalStock}</div>`
+      : '';
     return `<div class="hist-item">
       <div class="hi-badge ${r.type}">${r.type==='in'?'📦':'📤'}</div>
       <div class="hi-body"><div class="hi-name">${escHtml(r.name)}</div><div class="hi-meta">${t}${r.type==='in'?' · 입고':' · 출고'}</div></div>
-      <div class="hi-qty ${r.type}" style="text-align:right;line-height:1.8">${unitStr}${extraStr}</div>
+      <div class="hi-qty ${r.type}" style="text-align:right;line-height:1.8">${unitStr}${extraStr}${stockStr}</div>
       <button class="hist-cancel-btn" onclick="cancelHistory(${origIdx})" title="취소">✕</button>
     </div>`;
   }).join('');
@@ -1597,20 +1619,24 @@ async function cancelHistory(idx) {
   for(const u of (r.unitRows||[])){
     if(!u.qty) continue;
     const matchRows=allSheetProducts.filter(p=>p.name===r.name);
-    const matchRow=matchRows.find(p=>p.unitLabel===u.display||p.unitLabel===u.unitLabel)||matchRows[0];
-    // 현재 시트의 실제 재고 기준으로 역산 (로컬캐시가 최신이면 정확)
-    const stockBox=matchRow?.stockBox||0;
-    const newStockBox=reverseType==='in'?stockBox+u.qty:Math.max(0,stockBox-u.qty);
-    if(matchRow) matchRow.stockBox=newStockBox; // 로컬캐시도 즉시 반영
+    const matchRow=matchRows.find(p=>u.rowIndex&&p.rowIndex===u.rowIndex)
+      ||matchRows.find(p=>p.unitLabel===u.unitLabel||p.unitLabel===u.display)
+      ||matchRows[0];
+
+    // prevStockBox: histLog에 저장된 값 우선 (가장 정확), 없으면 로컬캐시
+    const prevStockBox = (u.prevStockBox !== undefined) ? u.prevStockBox : (matchRow?.stockBox||0);
+    const newStockBox = reverseType==='in' ? prevStockBox+u.qty : Math.max(0, prevStockBox-u.qty);
+
+    if(matchRow) matchRow.stockBox = newStockBox; // 로컬캐시 즉시 반영
     records.push({
-      rowIndex:matchRow?.rowIndex||null,
-      barcode:r.barcode||matchRow?.barcode||'',
-      name:r.name,
-      unitLabel:matchRow?.unitLabel||u.display||u.unitLabel||'',
-      type:reverseType,qty:u.qty,unitQty:1,
-      prevStockBox:stockBox,newStockBox,
-      prevStockUnit:0,newStockUnit:0,
-      time:new Date().toISOString()
+      rowIndex: u.rowIndex || matchRow?.rowIndex || null,
+      barcode: r.barcode||matchRow?.barcode||'',
+      name: r.name,
+      unitLabel: u.unitLabel || matchRow?.unitLabel || u.display || '',
+      type: reverseType, qty: u.qty, unitQty: 1,
+      prevStockBox, newStockBox,
+      prevStockUnit: 0, newStockUnit: 0,
+      time: new Date().toISOString()
     });
   }
   // 낱개도 처리
