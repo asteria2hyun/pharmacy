@@ -360,7 +360,7 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:1
       <div style="font-size:13px;font-weight:700">⚠️ 재고주의 품목</div>
       <button onclick="goMode('prod');filterLowStock()" style="font-size:11px;color:var(--accent);background:var(--accent-bg);border:1px solid #ddd6fe;border-radius:6px;padding:4px 10px;cursor:pointer;font-family:var(--sans)">품목 보기</button>
     </div>
-    <div id="dash-low-list" style="padding:8px 0;max-height:220px;overflow-y:auto"></div>
+    <div id="dash-low-list" style="padding:8px 0;max-height:calc(100vh - 280px);min-height:320px;overflow-y:auto"></div>
   </div>
 </div>
 
