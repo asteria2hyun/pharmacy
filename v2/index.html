@@ -1,0 +1,1158 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#3B82F6">
+<title>약국 재고관리 v2</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+    background: #F9FAFB; color: #111827;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+  body { padding-bottom: 70px; min-height: 100vh; }
+
+  .header {
+    background: linear-gradient(135deg, #3B82F6 0%, #2563EB 100%);
+    color: #fff; padding: 14px 16px;
+    position: sticky; top: 0; z-index: 50;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .header h1 { margin: 0; font-size: 17px; font-weight: 700; letter-spacing: -0.3px; }
+  .header .badge {
+    background: rgba(255,255,255,0.22); padding: 3px 8px; border-radius: 10px;
+    font-size: 11px; font-weight: 600;
+  }
+  .status-dot {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    background: #FBBF24; margin-right: 6px; vertical-align: middle;
+  }
+  .status-dot.online { background: #10B981; }
+  .status-dot.offline { background: #EF4444; }
+
+  .container { padding: 14px; max-width: 720px; margin: 0 auto; }
+  .card {
+    background: #fff; border-radius: 14px; padding: 16px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    margin-bottom: 12px;
+  }
+  .card h3 {
+    margin: 0 0 10px 0; font-size: 13px; color: #6B7280; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+
+  button {
+    font-family: inherit; cursor: pointer; border: none;
+    border-radius: 10px; font-weight: 600;
+    transition: transform 0.05s, opacity 0.15s;
+  }
+  button:active { transform: scale(0.97); }
+  .btn {
+    padding: 14px 18px; font-size: 15px;
+    background: #3B82F6; color: #fff; width: 100%;
+  }
+  .btn-success { background: #10B981; color: #fff; }
+  .btn-danger { background: #EF4444; color: #fff; }
+  .btn-secondary { background: #E5E7EB; color: #374151; }
+  .btn-ghost { background: transparent; color: #3B82F6; border: 1.5px solid #3B82F6; }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-row { display: flex; gap: 8px; }
+  .btn-row > .btn { flex: 1; }
+
+  .scan-btn {
+    background: linear-gradient(135deg, #10B981 0%, #059669 100%);
+    color: #fff; padding: 22px 16px; font-size: 17px;
+    border-radius: 14px; width: 100%;
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    box-shadow: 0 4px 12px rgba(16,185,129,0.25);
+  }
+  .scan-btn.out {
+    background: linear-gradient(135deg, #EF4444 0%, #DC2626 100%);
+    box-shadow: 0 4px 12px rgba(239,68,68,0.25);
+  }
+  .scan-btn svg { width: 22px; height: 22px; }
+
+  input[type="text"], input[type="number"], input[type="url"], select {
+    width: 100%; padding: 12px 14px; border: 1.5px solid #E5E7EB;
+    border-radius: 10px; font-size: 15px; font-family: inherit;
+    background: #fff; color: #111827;
+  }
+  input:focus, select:focus { outline: none; border-color: #3B82F6; }
+  label {
+    display: block; font-size: 13px; color: #6B7280;
+    margin-bottom: 6px; font-weight: 500;
+  }
+  .field { margin-bottom: 12px; }
+
+  .tabbar {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: #fff; display: flex;
+    border-top: 1px solid #E5E7EB;
+    padding-bottom: env(safe-area-inset-bottom);
+    z-index: 100;
+  }
+  .tabbar button {
+    flex: 1; background: none; border: none; padding: 10px 4px;
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+    color: #9CA3AF; font-size: 11px; font-weight: 500;
+    border-radius: 0;
+  }
+  .tabbar button.active { color: #3B82F6; }
+  .tabbar .icon { font-size: 20px; }
+
+  .page { display: none; }
+  .page.active { display: block; }
+
+  .stat-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+    margin-bottom: 14px;
+  }
+  .stat {
+    background: #fff; border-radius: 12px; padding: 14px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  }
+  .stat .label { font-size: 12px; color: #6B7280; margin-bottom: 6px; }
+  .stat .value { font-size: 26px; font-weight: 700; color: #111827; line-height: 1; }
+  .stat.in .value { color: #10B981; }
+  .stat.out .value { color: #EF4444; }
+  .stat .unit { font-size: 13px; color: #9CA3AF; font-weight: 500; margin-left: 2px; }
+
+  .list-item {
+    background: #fff; padding: 12px 14px; border-radius: 10px;
+    margin-bottom: 8px; display: flex; align-items: center;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+  }
+  .list-item .name { font-weight: 600; font-size: 14px; }
+  .list-item .meta { font-size: 12px; color: #9CA3AF; margin-top: 3px; }
+  .list-item .qty {
+    margin-left: auto; font-weight: 700; font-size: 15px;
+    text-align: right;
+  }
+  .list-item .qty.in { color: #10B981; }
+  .list-item .qty.out { color: #EF4444; }
+
+  /* 스캐너 오버레이 */
+  .scanner-overlay {
+    position: fixed; inset: 0; background: #000;
+    z-index: 1000; display: none; flex-direction: column;
+  }
+  .scanner-overlay.active { display: flex; }
+  .scanner-header {
+    padding: 14px 16px; color: #fff;
+    display: flex; justify-content: space-between; align-items: center;
+    background: rgba(0,0,0,0.5); position: relative; z-index: 10;
+  }
+  .scanner-header h2 { margin: 0; font-size: 16px; font-weight: 600; }
+  .scanner-close {
+    background: rgba(255,255,255,0.2); color: #fff; border: none;
+    width: 36px; height: 36px; border-radius: 50%; font-size: 18px;
+  }
+  .scanner-view {
+    position: relative; flex: 1; overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+    background: #000;
+  }
+  #scanner-target { width: 100%; height: 100%; position: relative; }
+  #scanner-target video { width: 100% !important; height: 100% !important; object-fit: cover; }
+  #scanner-target canvas.drawingBuffer { position: absolute; top: 0; left: 0; }
+
+  .scan-frame {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    width: 75%; height: 28%;
+    pointer-events: none; z-index: 5;
+  }
+  .scan-corner { position: absolute; width: 28px; height: 28px; border: 3px solid #10B981; }
+  .scan-corner.tl { top: 0; left: 0; border-right: none; border-bottom: none; border-top-left-radius: 6px; }
+  .scan-corner.tr { top: 0; right: 0; border-left: none; border-bottom: none; border-top-right-radius: 6px; }
+  .scan-corner.bl { bottom: 0; left: 0; border-right: none; border-top: none; border-bottom-left-radius: 6px; }
+  .scan-corner.br { bottom: 0; right: 0; border-left: none; border-top: none; border-bottom-right-radius: 6px; }
+  .scan-line {
+    position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, transparent, #10B981, transparent);
+    animation: scanline 2s linear infinite;
+  }
+  @keyframes scanline { 0% { top: 0; } 50% { top: 100%; } 100% { top: 0; } }
+
+  .scanner-hint {
+    position: absolute; bottom: 100px; left: 16px; right: 16px;
+    text-align: center; color: #fff; font-size: 14px;
+    background: rgba(0,0,0,0.65); padding: 10px 14px; border-radius: 10px;
+    z-index: 10;
+  }
+  .scanner-hint .small { font-size: 12px; opacity: 0.8; margin-top: 4px; }
+
+  .scanner-actions {
+    padding: 14px 16px; background: rgba(0,0,0,0.8);
+    display: flex; gap: 8px; position: relative; z-index: 10;
+  }
+  .scanner-actions .btn { padding: 12px; font-size: 14px; }
+
+  /* 모달 */
+  .modal {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+    z-index: 2000; display: none;
+    align-items: flex-end; justify-content: center;
+  }
+  .modal.active { display: flex; }
+  .modal-content {
+    background: #fff; width: 100%; max-width: 480px;
+    border-radius: 18px 18px 0 0; padding: 20px;
+    animation: slideUp 0.25s ease;
+    max-height: 92vh; overflow-y: auto;
+  }
+  @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+  .modal h2 { margin: 0 0 6px 0; font-size: 18px; }
+  .modal .barcode-display {
+    background: #F3F4F6; padding: 8px 10px; border-radius: 8px;
+    font-family: "SF Mono", Consolas, monospace; font-size: 12px;
+    color: #6B7280; word-break: break-all; margin-bottom: 14px;
+  }
+  .modal .prod-name {
+    font-size: 17px; font-weight: 700; color: #111827; margin-bottom: 4px;
+  }
+  .modal .prod-unit {
+    font-size: 13px; color: #6B7280; margin-bottom: 12px;
+  }
+
+  .qty-row {
+    display: flex; align-items: center; gap: 10px;
+    background: #F9FAFB; padding: 10px 12px; border-radius: 10px;
+    margin-bottom: 10px;
+  }
+  .qty-row .qty-label {
+    flex: 1; font-weight: 600; font-size: 14px;
+  }
+  .qty-row .qty-label .sublabel { font-size: 11px; color: #9CA3AF; font-weight: 500; }
+  .qty-btn {
+    width: 38px; height: 38px; border-radius: 50%;
+    background: #fff; color: #111827; font-size: 18px; font-weight: 700;
+    border: 1.5px solid #E5E7EB;
+  }
+  .qty-input {
+    width: 64px; text-align: center; font-size: 20px; font-weight: 700;
+    padding: 6px; border: 1.5px solid #E5E7EB; border-radius: 10px;
+  }
+  .current-stock {
+    font-size: 11px; color: #9CA3AF; margin-top: 4px;
+  }
+
+  .toast {
+    position: fixed; top: 70px; left: 50%; transform: translateX(-50%);
+    background: rgba(17,24,39,0.92); color: #fff;
+    padding: 10px 18px; border-radius: 22px; font-size: 14px;
+    z-index: 3000; opacity: 0; pointer-events: none;
+    transition: opacity 0.25s, transform 0.25s;
+    max-width: 90%; text-align: center;
+  }
+  .toast.show { opacity: 1; }
+  .toast.success { background: #10B981; }
+  .toast.error { background: #EF4444; }
+
+  .loading-spin {
+    display: inline-block; width: 16px; height: 16px;
+    border: 2px solid rgba(255,255,255,0.3);
+    border-top-color: #fff; border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .empty {
+    text-align: center; color: #9CA3AF;
+    padding: 40px 20px; font-size: 14px;
+  }
+  .empty .emoji { font-size: 36px; margin-bottom: 8px; }
+
+  .alert-yellow {
+    background: #FEF3C7; border: 1.5px solid #F59E0B;
+    padding: 12px 14px; border-radius: 10px; margin-bottom: 12px;
+    font-size: 13px; color: #92400E;
+  }
+  .alert-blue {
+    background: #DBEAFE; border: 1.5px solid #3B82F6;
+    padding: 12px 14px; border-radius: 10px; margin-bottom: 12px;
+    font-size: 13px; color: #1E40AF;
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>💊 약국 재고관리 v2</h1>
+  <span class="badge"><span id="connStatus" class="status-dot"></span><span id="connText">연결중</span></span>
+</div>
+
+<div class="container">
+
+  <!-- 입고 -->
+  <div class="page active" id="page-in">
+    <button class="scan-btn" onclick="startScan('in')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        <rect x="3" y="3" width="18" height="18" rx="2"/>
+        <path d="M7 7v10M11 7v10M15 7v10M19 7v3M19 14v3"/>
+      </svg>
+      입고 스캔
+    </button>
+    <div style="height:12px"></div>
+    <div class="card">
+      <h3>오늘 입고</h3>
+      <div id="recent-in"><div class="empty"><div class="emoji">📦</div>오늘 입고 기록이 없습니다</div></div>
+    </div>
+  </div>
+
+  <!-- 출고 -->
+  <div class="page" id="page-out">
+    <button class="scan-btn out" onclick="startScan('out')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        <rect x="3" y="3" width="18" height="18" rx="2"/>
+        <path d="M7 7v10M11 7v10M15 7v10M19 7v3M19 14v3"/>
+      </svg>
+      출고 스캔
+    </button>
+    <div style="height:12px"></div>
+    <div class="card">
+      <h3>오늘 출고</h3>
+      <div id="recent-out"><div class="empty"><div class="emoji">📤</div>오늘 출고 기록이 없습니다</div></div>
+    </div>
+  </div>
+
+  <!-- 검색 -->
+  <div class="page" id="page-search">
+    <div class="card">
+      <h3>제품 검색</h3>
+      <div class="field">
+        <input type="text" id="searchInput" placeholder="바코드 또는 제품명" oninput="doSearch()">
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-secondary" onclick="reloadCache()" style="flex:0 0 110px">🔄 새로고침</button>
+        <button class="btn btn-secondary" onclick="startScan('search')" style="flex:0 0 90px">📷 스캔</button>
+      </div>
+    </div>
+    <div id="searchResults"></div>
+  </div>
+
+  <!-- 대시보드 -->
+  <div class="page" id="page-dash">
+    <div class="stat-grid">
+      <div class="stat in">
+        <div class="label">오늘 입고</div>
+        <div class="value"><span id="todayIn">0</span><span class="unit">건</span></div>
+      </div>
+      <div class="stat out">
+        <div class="label">오늘 출고</div>
+        <div class="value"><span id="todayOut">0</span><span class="unit">건</span></div>
+      </div>
+      <div class="stat">
+        <div class="label">전체 품목</div>
+        <div class="value"><span id="totalItems">0</span><span class="unit">개</span></div>
+      </div>
+      <div class="stat">
+        <div class="label">DB 캐시</div>
+        <div class="value"><span id="cacheItems">0</span><span class="unit">행</span></div>
+      </div>
+    </div>
+    <button class="btn btn-secondary" onclick="refreshDashboard()">새로고침</button>
+  </div>
+
+  <!-- 설정 -->
+  <div class="page" id="page-setting">
+    <div class="card">
+      <h3>Google Sheets 연동</h3>
+      <div class="field">
+        <label>Apps Script Web App URL</label>
+        <input type="url" id="cfg-url" placeholder="https://script.google.com/macros/s/.../exec">
+      </div>
+      <button class="btn" onclick="saveConfig()">저장 & 연결 테스트</button>
+    </div>
+
+    <div class="card">
+      <h3>스캐너 설정</h3>
+      <div class="field">
+        <label>인식 빈도 (Hz, 높을수록 빠름·배터리↑)</label>
+        <select id="cfg-freq">
+          <option value="5">5 (배터리 절약)</option>
+          <option value="10" selected>10 (기본)</option>
+          <option value="15">15 (빠름)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>중복 스캔 방지 (초)</label>
+        <select id="cfg-dedup">
+          <option value="1">1초</option>
+          <option value="2" selected>2초</option>
+          <option value="3">3초</option>
+        </select>
+      </div>
+      <button class="btn btn-secondary" onclick="saveScannerCfg()">저장</button>
+    </div>
+
+    <div class="card">
+      <h3>정보</h3>
+      <p style="font-size:13px; color:#6B7280; line-height:1.7; margin:0;">
+        스캔 엔진: <b>QuaggaJS</b> (1D 강화) + <b>BarcodeDetector</b> (2D 보완)<br>
+        지원: EAN-13, EAN-8, CODE-128, CODE-39, UPC, ITF, Codabar, QR<br>
+        한국 의약품 16/15/14자리 자동 정규화<br>
+        2-prefix ↔ 88-prefix 자동 변환 시도<br>
+        시트 구조: 묶음/낱개 2단위 + 추가바코드 G열 누적
+      </p>
+    </div>
+  </div>
+
+</div>
+
+<!-- 탭바 -->
+<div class="tabbar">
+  <button data-tab="in" onclick="switchTab('in')" class="active"><span class="icon">📦</span><span>입고</span></button>
+  <button data-tab="out" onclick="switchTab('out')"><span class="icon">📤</span><span>출고</span></button>
+  <button data-tab="search" onclick="switchTab('search')"><span class="icon">🔍</span><span>검색</span></button>
+  <button data-tab="dash" onclick="switchTab('dash')"><span class="icon">📊</span><span>대시</span></button>
+  <button data-tab="setting" onclick="switchTab('setting')"><span class="icon">⚙️</span><span>설정</span></button>
+</div>
+
+<!-- 스캐너 오버레이 -->
+<div class="scanner-overlay" id="scannerOverlay">
+  <div class="scanner-header">
+    <h2 id="scannerTitle">바코드 스캔</h2>
+    <button class="scanner-close" onclick="stopScan()">✕</button>
+  </div>
+  <div class="scanner-view">
+    <div id="scanner-target"></div>
+    <div class="scan-frame">
+      <div class="scan-corner tl"></div><div class="scan-corner tr"></div>
+      <div class="scan-corner bl"></div><div class="scan-corner br"></div>
+      <div class="scan-line"></div>
+    </div>
+    <div class="scanner-hint" id="scannerHint">
+      바코드를 프레임 안에 맞춰주세요
+      <div class="small">10~20cm 거리, 정면 각도가 가장 잘 인식됩니다</div>
+    </div>
+  </div>
+  <div class="scanner-actions">
+    <button class="btn btn-secondary" onclick="restartScan()">🔄 재시작</button>
+    <button class="btn" onclick="openManualInput()">⌨️ 수동입력</button>
+  </div>
+</div>
+
+<!-- 입출고 수량 모달 (기존 제품) -->
+<div class="modal" id="qtyModal">
+  <div class="modal-content">
+    <h2 id="qtyTitle">입고 수량</h2>
+    <div class="prod-name" id="qtyProdName">-</div>
+    <div class="prod-unit" id="qtyProdUnit"></div>
+    <div class="barcode-display" id="qtyBarcode"></div>
+
+    <div id="qtyVariantNotice"></div>
+
+    <div id="qtyRowsContainer"></div>
+
+    <div class="btn-row" style="margin-top: 14px;">
+      <button class="btn btn-secondary" onclick="closeQtyModal()">취소</button>
+      <button class="btn" id="qtySaveBtn" onclick="saveTransaction()">저장</button>
+    </div>
+  </div>
+</div>
+
+<!-- 신규 제품 등록 모달 -->
+<div class="modal" id="newModal">
+  <div class="modal-content">
+    <h2>🆕 신규 제품 등록</h2>
+    <div class="barcode-display" id="newBarcode"></div>
+    <div class="alert-yellow">
+      이 바코드는 시트에 없습니다. 입고하면서 자동 등록됩니다.
+    </div>
+    <div class="field">
+      <label>제품명 *</label>
+      <input type="text" id="newName" placeholder="예: 후시딘 10g">
+    </div>
+    <div class="field">
+      <label>단위 라벨 (선택)</label>
+      <input type="text" id="newUnitLabel" placeholder="예: 10g 1튜브, 10정 1포">
+    </div>
+    <div class="field">
+      <label>입고 수량 (묶음)</label>
+      <input type="number" id="newQty" value="1" min="1">
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-secondary" onclick="closeNewModal()">취소</button>
+      <button class="btn btn-success" id="newSaveBtn" onclick="saveNewProduct()">등록 & 입고</button>
+    </div>
+  </div>
+</div>
+
+<!-- 수동 입력 모달 -->
+<div class="modal" id="manualModal">
+  <div class="modal-content">
+    <h2>바코드 수동 입력</h2>
+    <p style="font-size:13px; color:#6B7280; margin: -8px 0 12px;">
+      스캔이 안 되면 바코드 숫자를 직접 입력하세요
+    </p>
+    <div class="field">
+      <input type="text" id="manualBarcode" placeholder="예: 8801234567890" inputmode="numeric">
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-secondary" onclick="closeManualInput()">취소</button>
+      <button class="btn" onclick="submitManualBarcode()">확인</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- QuaggaJS -->
+<script src="https://cdn.jsdelivr.net/npm/quagga@0.12.1/dist/quagga.min.js"></script>
+
+<script>
+/* ===========================================================================
+   약국 재고관리 v2
+   - QuaggaJS (1D) + BarcodeDetector (2D)
+   - 기존 Apps Script v5 (창고재고 일반약/전문약, 묶음/낱개 2단위) 연동
+=========================================================================== */
+
+const DEFAULT_URL = 'https://script.google.com/macros/s/AKfycbysydF9MVcEKKR_AeD_BgXfH5oyHOOiawWFmS5eKUxY-tDxCvsnTPsddX0Pq-q05PmG1g/exec';
+
+const CONFIG = {
+  scriptUrl: localStorage.getItem('ph_script_url') || DEFAULT_URL,
+  freq: parseInt(localStorage.getItem('ph_freq') || '10', 10),
+  dedupSec: parseInt(localStorage.getItem('ph_dedup') || '2', 10),
+};
+
+let scanMode = null;
+let lastScannedCode = null;
+let lastScannedAt = 0;
+let stableHits = {};
+let backupDetector = null;
+let backupRafId = null;
+let retryTimer = null;
+
+// 캐시 (검색용)
+let allProductsCache = null;
+let allProductsCachedAt = 0;
+
+// 현재 모달 상태
+let currentTransaction = {
+  barcode: null,
+  matchedVariant: null,   // 매칭된 실제 바코드 (변형 자동 시도 결과)
+  rows: [],               // 단위별 행 (배열)
+  isVariantOf: null,      // 다른 바코드의 변형이라면 그 메인 바코드
+};
+
+/* ---- 유틸 ---- */
+function $(id) { return document.getElementById(id); }
+function toast(msg, type='') {
+  const t = $('toast');
+  t.textContent = msg;
+  t.className = 'toast show ' + type;
+  clearTimeout(t._tid);
+  t._tid = setTimeout(() => t.classList.remove('show'), 2200);
+}
+function vibrate(ms) { if (navigator.vibrate) navigator.vibrate(ms); }
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function todayStr() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+
+/* ---- 바코드 정규화 + 변형 ---- */
+function normalizeBarcode(raw) {
+  if (!raw) return raw;
+  let c = String(raw).replace(/[()\s-]/g, '');
+  if (c.length === 16 && c.startsWith('01')) c = c.substring(2);
+  if (c.length === 15 && c.startsWith('01')) c = c.substring(2);
+  if (c.length === 14 && c.startsWith('0'))  c = c.substring(1);
+  return c;
+}
+function getBarcodeVariants(code) {
+  const v = [code];
+  if (code.startsWith('2') && code.length === 13) v.push('88' + code.substring(1));
+  else if (code.startsWith('88') && code.length === 13) v.push('2' + code.substring(2));
+  return v;
+}
+
+/* ---- 서버 통신 ---- */
+async function apiGet(action, params = {}) {
+  if (!CONFIG.scriptUrl) throw new Error('Apps Script URL 미설정');
+  const q = new URLSearchParams({ action, ...params });
+  const res = await fetch(CONFIG.scriptUrl + '?' + q.toString(), {
+    method: 'GET', redirect: 'follow'
+  });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const j = await res.json();
+  if (!j.success) throw new Error(j.message || 'API 실패');
+  return j;
+}
+
+async function apiPost(body) {
+  if (!CONFIG.scriptUrl) throw new Error('Apps Script URL 미설정');
+  // text/plain → CORS preflight 회피 (Apps Script POST 호환)
+  const res = await fetch(CONFIG.scriptUrl, {
+    method: 'POST', redirect: 'follow',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const j = await res.json();
+  if (!j.success) throw new Error(j.message || 'API 실패');
+  return j;
+}
+
+function setConnStatus(ok) {
+  $('connStatus').className = 'status-dot ' + (ok ? 'online' : 'offline');
+  $('connText').textContent = ok ? '연결됨' : '오프라인';
+}
+
+/* ---- 탭 전환 ---- */
+function switchTab(tab) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tabbar button').forEach(b => b.classList.remove('active'));
+  $('page-' + tab).classList.add('active');
+  document.querySelector(`.tabbar button[data-tab="${tab}"]`).classList.add('active');
+  if (tab === 'dash') refreshDashboard();
+  if (tab === 'in') refreshRecent('in');
+  if (tab === 'out') refreshRecent('out');
+}
+
+/* ---- 스캔 시작/종료 ---- */
+async function startScan(mode) {
+  if (!CONFIG.scriptUrl) {
+    toast('Apps Script URL을 먼저 설정하세요', 'error');
+    switchTab('setting'); return;
+  }
+  scanMode = mode;
+  lastScannedCode = null;
+  lastScannedAt = 0;
+  stableHits = {};
+  $('scannerTitle').textContent =
+    mode === 'in' ? '입고 스캔' :
+    mode === 'out' ? '출고 스캔' : '검색 스캔';
+  $('scannerHint').innerHTML = '바코드를 프레임 안에 맞춰주세요<div class="small">10~20cm 거리, 정면 각도가 가장 잘 인식됩니다</div>';
+  $('scannerOverlay').classList.add('active');
+
+  try {
+    await new Promise((resolve, reject) => {
+      Quagga.init({
+        inputStream: {
+          name: "Live", type: "LiveStream",
+          target: document.querySelector('#scanner-target'),
+          constraints: {
+            width: { ideal: 1280 }, height: { ideal: 720 },
+            facingMode: "environment", aspectRatio: { ideal: 16/9 }
+          },
+          area: { top: "30%", right: "10%", left: "10%", bottom: "30%" },
+        },
+        locator: { patchSize: "medium", halfSample: true },
+        numOfWorkers: Math.min(navigator.hardwareConcurrency || 2, 4),
+        frequency: CONFIG.freq,
+        decoder: {
+          readers: [
+            "ean_reader", "ean_8_reader", "code_128_reader",
+            "code_39_reader", "upc_reader", "upc_e_reader",
+            "i2of5_reader", "codabar_reader"
+          ],
+          multiple: false
+        },
+        locate: true
+      }, function(err) {
+        if (err) return reject(err);
+        Quagga.start();
+        resolve();
+      });
+    });
+
+    Quagga.onDetected(onQuaggaDetected);
+    startBackupDetector();
+
+    clearTimeout(retryTimer);
+    retryTimer = setTimeout(() => {
+      if ($('scannerOverlay').classList.contains('active') && !lastScannedCode) {
+        $('scannerHint').innerHTML =
+          '<b>인식이 어려운가요?</b><div class="small">조명 밝게 / 거리 조정 / 수동입력 버튼 사용</div>';
+      }
+    }, 5000);
+  } catch (e) {
+    console.error('Quagga init failed', e);
+    toast('카메라를 시작할 수 없습니다: ' + e.message, 'error');
+    stopScan();
+  }
+}
+
+function onQuaggaDetected(result) {
+  if (!result || !result.codeResult) return;
+  const code = result.codeResult.code;
+  if (!code) return;
+  // 같은 코드 2회 연속 감지될 때만 인정 (오인식 방지)
+  stableHits[code] = (stableHits[code] || 0) + 1;
+  if (stableHits[code] < 2) return;
+  handleScanResult(code);
+}
+
+async function startBackupDetector() {
+  if (!('BarcodeDetector' in window)) return;
+  try {
+    backupDetector = new BarcodeDetector({
+      formats: ['qr_code', 'data_matrix', 'pdf417', 'aztec', 'ean_13', 'code_128']
+    });
+    const tryDetect = async () => {
+      if (!$('scannerOverlay').classList.contains('active')) return;
+      const video = document.querySelector('#scanner-target video');
+      if (video) {
+        try {
+          const codes = await backupDetector.detect(video);
+          if (codes.length > 0) { handleScanResult(codes[0].rawValue); return; }
+        } catch(_) {}
+      }
+      backupRafId = requestAnimationFrame(tryDetect);
+    };
+    setTimeout(() => tryDetect(), 800);
+  } catch (e) {}
+}
+
+function stopBackupDetector() {
+  if (backupRafId) { cancelAnimationFrame(backupRafId); backupRafId = null; }
+  backupDetector = null;
+}
+
+async function handleScanResult(rawCode) {
+  const now = Date.now();
+  const normalized = normalizeBarcode(rawCode);
+  if (normalized === lastScannedCode && (now - lastScannedAt) < CONFIG.dedupSec * 1000) return;
+  lastScannedCode = normalized; lastScannedAt = now;
+
+  vibrate(60);
+  stopScan();
+
+  if (scanMode === 'search') {
+    $('searchInput').value = normalized;
+    switchTab('search');
+    doSearch();
+    return;
+  }
+
+  // 입고/출고: 제품 조회
+  await lookupAndOpenModal(normalized);
+}
+
+function stopScan() {
+  clearTimeout(retryTimer);
+  try { Quagga.offDetected(onQuaggaDetected); } catch(_) {}
+  try { Quagga.stop(); } catch(_) {}
+  stopBackupDetector();
+  $('scannerOverlay').classList.remove('active');
+}
+
+function restartScan() {
+  const mode = scanMode;
+  stopScan();
+  setTimeout(() => startScan(mode), 250);
+}
+
+/* ---- 수동 입력 ---- */
+function openManualInput() {
+  $('manualBarcode').value = '';
+  $('manualModal').classList.add('active');
+  setTimeout(() => $('manualBarcode').focus(), 100);
+}
+function closeManualInput() { $('manualModal').classList.remove('active'); }
+function submitManualBarcode() {
+  const v = $('manualBarcode').value.trim();
+  if (!v) { toast('바코드를 입력하세요', 'error'); return; }
+  closeManualInput();
+  handleScanResult(v);
+}
+
+/* ---- 제품 조회 + 모달 열기 ---- */
+async function lookupAndOpenModal(barcode) {
+  const variants = getBarcodeVariants(barcode);
+  let matched = null;
+  let matchedVariant = barcode;
+
+  for (const v of variants) {
+    try {
+      const r = await apiGet('getProduct', { barcode: v });
+      if (r.rows && r.rows.length) {
+        matched = r.rows;
+        matchedVariant = v;
+        break;
+      }
+    } catch(e) { /* not found */ }
+  }
+  setConnStatus(true);
+
+  currentTransaction = {
+    barcode,
+    matchedVariant,
+    rows: matched || [],
+    isVariantOf: (matched && matchedVariant !== barcode) ? matchedVariant : null
+  };
+
+  if (matched) {
+    openQtyModal();
+  } else {
+    openNewProductModal(barcode);
+  }
+}
+
+/* ---- 수량 모달 (기존 제품) ---- */
+function openQtyModal() {
+  const t = currentTransaction;
+  const isIn = scanMode === 'in';
+  $('qtyTitle').textContent = isIn ? '입고 수량' : '출고 수량';
+  $('qtyProdName').textContent = t.rows[0]?.name || '';
+  $('qtyProdUnit').textContent = t.rows[0]?.unitLabel ? ('단위: ' + t.rows[0].unitLabel) : '';
+  $('qtyBarcode').textContent = t.barcode;
+
+  // 변형 바코드 안내
+  const notice = $('qtyVariantNotice');
+  if (t.isVariantOf) {
+    notice.innerHTML = `<div class="alert-blue">
+      스캔: <b>${escapeHtml(t.barcode)}</b><br>
+      매칭: <b>${escapeHtml(t.isVariantOf)}</b> (변형) — 저장 시 추가바코드(G열)로 자동 연결됩니다
+    </div>`;
+  } else {
+    notice.innerHTML = '';
+  }
+
+  // 단위별 입력 행 그리기
+  const c = $('qtyRowsContainer');
+  c.innerHTML = '';
+  t.rows.forEach((row, idx) => {
+    const unitLabel = row.unitLabel || '(라벨없음)';
+    const boxQtyId = `qtyBox-${idx}`;
+    const unitQtyId = `qtyUnit-${idx}`;
+    c.innerHTML += `
+      <div style="margin-bottom: 8px; padding: 10px; background: #F9FAFB; border-radius: 10px;">
+        <div style="font-size: 13px; color: #6B7280; margin-bottom: 6px;">
+          ${escapeHtml(unitLabel)} <span style="color:#9CA3AF;">(현재 묶음 ${row.stockBox} / 낱개 ${row.stockUnit})</span>
+        </div>
+        <div class="qty-row">
+          <div class="qty-label">묶음<div class="sublabel">${escapeHtml(unitLabel)}</div></div>
+          <button class="qty-btn" onclick="adjustQty('${boxQtyId}', -1)">−</button>
+          <input type="number" id="${boxQtyId}" class="qty-input" value="0" min="0">
+          <button class="qty-btn" onclick="adjustQty('${boxQtyId}', 1)">+</button>
+        </div>
+        <div class="qty-row">
+          <div class="qty-label">낱개<div class="sublabel">개별 단위</div></div>
+          <button class="qty-btn" onclick="adjustQty('${unitQtyId}', -1)">−</button>
+          <input type="number" id="${unitQtyId}" class="qty-input" value="0" min="0">
+          <button class="qty-btn" onclick="adjustQty('${unitQtyId}', 1)">+</button>
+        </div>
+      </div>
+    `;
+  });
+
+  const saveBtn = $('qtySaveBtn');
+  saveBtn.className = isIn ? 'btn btn-success' : 'btn btn-danger';
+  saveBtn.textContent = isIn ? '입고 저장' : '출고 저장';
+
+  $('qtyModal').classList.add('active');
+}
+
+function adjustQty(id, delta) {
+  const el = $(id);
+  el.value = Math.max(0, (parseInt(el.value, 10) || 0) + delta);
+}
+
+function closeQtyModal() {
+  $('qtyModal').classList.remove('active');
+  currentTransaction = { barcode:null, matchedVariant:null, rows:[], isVariantOf:null };
+}
+
+async function saveTransaction() {
+  const t = currentTransaction;
+  const isIn = scanMode === 'in';
+  const records = [];
+
+  t.rows.forEach((row, idx) => {
+    const boxDelta = parseInt($(`qtyBox-${idx}`).value, 10) || 0;
+    const unitDelta = parseInt($(`qtyUnit-${idx}`).value, 10) || 0;
+    if (boxDelta > 0) {
+      const newBox = isIn ? row.stockBox + boxDelta : row.stockBox - boxDelta;
+      records.push({
+        type: isIn ? 'in' : 'out',
+        isUnit: false,
+        rowIndex: row.rowIndex,
+        sheetName: row.sheetName,
+        barcode: row.barcode || t.matchedVariant,
+        name: row.name,
+        unitLabel: row.unitLabel,
+        qty: boxDelta,
+        prevStockBox: row.stockBox,
+        newStockBox: newBox,
+        prevStockUnit: row.stockUnit,
+        newStockUnit: row.stockUnit
+      });
+    }
+    if (unitDelta > 0) {
+      const newUnit = isIn ? row.stockUnit + unitDelta : row.stockUnit - unitDelta;
+      records.push({
+        type: isIn ? 'in' : 'out',
+        isUnit: true,
+        rowIndex: row.rowIndex,
+        sheetName: row.sheetName,
+        barcode: row.barcode || t.matchedVariant,
+        name: row.name,
+        unitLabel: row.unitLabel,
+        qty: unitDelta,
+        prevStockBox: row.stockBox,
+        newStockBox: row.stockBox,
+        prevStockUnit: row.stockUnit,
+        newStockUnit: newUnit
+      });
+    }
+  });
+
+  if (records.length === 0) {
+    toast('수량을 1 이상 입력하세요', 'error');
+    return;
+  }
+
+  const btn = $('qtySaveBtn');
+  const orig = btn.textContent;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="loading-spin"></span> 저장 중...';
+
+  try {
+    await apiPost({ action: 'batchUpdate', records });
+
+    // 변형 바코드면 추가바코드 등록도 같이
+    if (t.isVariantOf && t.barcode !== t.matchedVariant) {
+      try {
+        await apiPost({
+          action: 'addExtraBarcode',
+          existingBarcode: t.matchedVariant,
+          newBarcode: t.barcode
+        });
+      } catch(e) { /* 실패해도 거래 자체는 저장됨 */ }
+    }
+
+    toast((isIn ? '입고' : '출고') + ' 저장 완료', 'success');
+    setConnStatus(true);
+    closeQtyModal();
+    refreshRecent(scanMode);
+    allProductsCache = null;  // 캐시 무효화
+  } catch (e) {
+    toast('저장 실패: ' + e.message, 'error');
+    btn.disabled = false;
+    btn.textContent = orig;
+  }
+}
+
+/* ---- 신규 제품 모달 ---- */
+function openNewProductModal(barcode) {
+  $('newBarcode').textContent = barcode;
+  $('newName').value = '';
+  $('newUnitLabel').value = '';
+  $('newQty').value = 1;
+  $('newModal').classList.add('active');
+  setTimeout(() => $('newName').focus(), 100);
+}
+function closeNewModal() { $('newModal').classList.remove('active'); }
+
+async function saveNewProduct() {
+  const barcode = currentTransaction.barcode;
+  const name = $('newName').value.trim();
+  const unitLabel = $('newUnitLabel').value.trim();
+  const qty = parseInt($('newQty').value, 10) || 1;
+  if (!name) { toast('제품명을 입력하세요', 'error'); return; }
+  if (scanMode === 'out') {
+    toast('출고는 등록된 제품만 가능합니다', 'error'); return;
+  }
+
+  const btn = $('newSaveBtn');
+  const orig = btn.textContent;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="loading-spin"></span> 등록 중...';
+
+  try {
+    await apiPost({
+      action: 'batchUpdate',
+      records: [{
+        type: 'in',
+        isUnit: false,
+        barcode,
+        name,
+        unitLabel,
+        qty,
+        prevStockBox: 0,
+        newStockBox: qty,
+        prevStockUnit: 0,
+        newStockUnit: 0
+      }]
+    });
+    toast('신규 등록 & 입고 완료', 'success');
+    closeNewModal();
+    refreshRecent('in');
+    allProductsCache = null;
+  } catch (e) {
+    toast('실패: ' + e.message, 'error');
+    btn.disabled = false;
+    btn.textContent = orig;
+  }
+}
+
+/* ---- 검색 (캐시 기반) ---- */
+async function ensureCache() {
+  if (allProductsCache && (Date.now() - allProductsCachedAt) < 5 * 60 * 1000) return allProductsCache;
+  const r = await apiGet('getAll');
+  allProductsCache = r.products || [];
+  allProductsCachedAt = Date.now();
+  return allProductsCache;
+}
+
+async function reloadCache() {
+  allProductsCache = null;
+  toast('캐시 새로고침 중...');
+  try {
+    await ensureCache();
+    toast(`DB ${allProductsCache.length}건 로드됨`, 'success');
+    setConnStatus(true);
+    doSearch();
+  } catch (e) {
+    toast('로드 실패: ' + e.message, 'error');
+  }
+}
+
+let searchTimer = null;
+function doSearch() {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(actuallySearch, 150);
+}
+async function actuallySearch() {
+  const q = $('searchInput').value.trim();
+  const results = $('searchResults');
+  if (!q) { results.innerHTML = ''; return; }
+  try {
+    const all = await ensureCache();
+    const isNumeric = /^\d+$/.test(q);
+    const variants = isNumeric ? getBarcodeVariants(normalizeBarcode(q)) : [q];
+    const qLower = q.toLowerCase();
+
+    const matches = all.filter(p => {
+      const bc = String(p.barcode || '').toLowerCase();
+      const nm = String(p.name || '').toLowerCase();
+      const extras = (p.extraBarcodes || []).map(b => String(b).toLowerCase());
+      if (variants.some(v => bc === v.toLowerCase() || extras.includes(v.toLowerCase()))) return true;
+      if (nm.includes(qLower)) return true;
+      return false;
+    }).slice(0, 50);
+
+    if (!matches.length) {
+      results.innerHTML = '<div class="empty"><div class="emoji">🔍</div>검색 결과가 없습니다</div>';
+      return;
+    }
+    results.innerHTML = matches.map(p => `
+      <div class="list-item">
+        <div style="min-width:0; flex:1;">
+          <div class="name">${escapeHtml(p.name)}</div>
+          <div class="meta">${escapeHtml(p.barcode || '(바코드없음)')} · ${escapeHtml(p.unitLabel || '')}</div>
+        </div>
+        <div class="qty">
+          <span style="color:#10B981;">${p.stockBox}</span>
+          <span style="color:#9CA3AF;font-size:11px;">/</span>
+          <span style="color:#3B82F6;">${p.stockUnit}</span>
+        </div>
+      </div>
+    `).join('');
+    setConnStatus(true);
+  } catch (e) {
+    results.innerHTML = `<div class="empty">검색 실패: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+/* ---- 오늘 거래 내역 ---- */
+async function refreshRecent(type) {
+  const el = $('recent-' + type);
+  if (!CONFIG.scriptUrl) return;
+  try {
+    const r = await apiGet('getTodayHistory');
+    const items = (r.history || []).filter(h => h.type === type);
+    if (!items.length) {
+      el.innerHTML = `<div class="empty"><div class="emoji">${type==='in'?'📦':'📤'}</div>오늘 ${type==='in'?'입고':'출고'} 기록이 없습니다</div>`;
+      return;
+    }
+    el.innerHTML = items.map(it => {
+      const time = it.time ? new Date(it.time).toTimeString().substring(0, 5) : '';
+      return `
+        <div class="list-item">
+          <div style="min-width:0; flex:1;">
+            <div class="name">${escapeHtml(it.name)}</div>
+            <div class="meta">${time} · ${escapeHtml(it.unitLabel || '')}</div>
+          </div>
+          <div class="qty ${type}">${type==='in'?'+':'−'}${it.qty}</div>
+        </div>
+      `;
+    }).join('');
+    setConnStatus(true);
+  } catch (e) {
+    el.innerHTML = `<div class="empty">불러오기 실패: ${escapeHtml(e.message)}</div>`;
+    setConnStatus(false);
+  }
+}
+
+/* ---- 대시보드 ---- */
+async function refreshDashboard() {
+  if (!CONFIG.scriptUrl) return;
+  try {
+    const h = await apiGet('getTodayHistory');
+    const items = h.history || [];
+    $('todayIn').textContent = items.filter(i => i.type === 'in').length;
+    $('todayOut').textContent = items.filter(i => i.type === 'out').length;
+    const all = await ensureCache();
+    $('totalItems').textContent = all.length;
+    $('cacheItems').textContent = all.length;
+    setConnStatus(true);
+  } catch (e) {
+    toast('대시보드 갱신 실패: ' + e.message, 'error');
+  }
+}
+
+/* ---- 설정 저장 ---- */
+function saveConfig() {
+  const url = $('cfg-url').value.trim();
+  if (!url || !url.includes('script.google.com')) {
+    toast('올바른 Apps Script URL을 입력하세요', 'error'); return;
+  }
+  CONFIG.scriptUrl = url;
+  localStorage.setItem('ph_script_url', url);
+  toast('저장됨, 연결 테스트 중...');
+  apiGet('getTodayHistory').then(() => {
+    toast('✓ 연결 성공', 'success');
+    setConnStatus(true);
+    refreshRecent('in');
+  }).catch(e => {
+    toast('연결 실패: ' + e.message, 'error');
+    setConnStatus(false);
+  });
+}
+
+function saveScannerCfg() {
+  CONFIG.freq = parseInt($('cfg-freq').value, 10);
+  CONFIG.dedupSec = parseInt($('cfg-dedup').value, 10);
+  localStorage.setItem('ph_freq', String(CONFIG.freq));
+  localStorage.setItem('ph_dedup', String(CONFIG.dedupSec));
+  toast('스캐너 설정 저장됨', 'success');
+}
+
+/* ---- 초기화 ---- */
+window.addEventListener('load', () => {
+  $('cfg-url').value = CONFIG.scriptUrl;
+  $('cfg-freq').value = CONFIG.freq;
+  $('cfg-dedup').value = CONFIG.dedupSec;
+  apiGet('getTodayHistory').then(() => {
+    setConnStatus(true);
+    refreshRecent('in');
+  }).catch(() => setConnStatus(false));
+});
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && $('scannerOverlay').classList.contains('active')) stopScan();
+});
+</script>
+
+</body>
+</html>
