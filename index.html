@@ -817,9 +817,24 @@ function scanFrame(video) {
 
   function confirmScan(raw) {
     const norm = normalizeBarcode(raw);
-    // EAN-13 체크섬 검증 - 유효하지 않으면 버퍼에 넣지 않음
-    if (norm.length === 13 && !isValidEAN13(norm)) return null;
-    scanBuffer.push(norm);
+
+    // EAN-13 체크섬 검증
+    let valid = norm;
+    if (norm.length === 13) {
+      if (isValidEAN13(norm)) {
+        valid = norm; // 정방향 유효
+      } else {
+        // 거꾸로 읽혔는지 확인
+        const reversed = norm.split('').reverse().join('');
+        if (isValidEAN13(reversed)) {
+          valid = reversed; // 역방향 보정
+        } else {
+          return null; // 둘 다 무효 → 버퍼에 넣지 않음
+        }
+      }
+    }
+
+    scanBuffer.push(valid);
     if (scanBuffer.length > 6) scanBuffer.shift();
     const counts = {};
     for (const v of scanBuffer) counts[v] = (counts[v]||0) + 1;
