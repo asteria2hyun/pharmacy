@@ -503,6 +503,7 @@ function normalizeBarcode(raw) {
 function getBarcodeVariants(barcode) {
   const norm = normalizeBarcode(barcode);
   const variants = new Set([barcode, norm]);
+
   // 2로 시작하면 88로 변환 시도
   if (norm.startsWith('2') && norm.length === 13) {
     variants.add('88' + norm.slice(3));
@@ -511,7 +512,22 @@ function getBarcodeVariants(barcode) {
   if (norm.startsWith('88') && norm.length === 13) {
     variants.add('2' + norm.slice(3, 13));
   }
-  // suffix 매칭 제거 (오매칭 원인)
+
+  // 앞자리 오인식 보정: 뒤 11자리 기준으로 가능한 앞자리 조합 추가
+  // 예: 1806718070552 → 8806718070552, 18806718070552 등
+  if (norm.length === 13) {
+    const suffix11 = norm.slice(2);  // 뒤 11자리
+    const suffix12 = norm.slice(1);  // 뒤 12자리
+    // 앞 2자리를 88로 바꾼 버전
+    variants.add('88' + suffix11);
+    // 앞 1자리를 8로 바꾼 버전
+    variants.add('8' + suffix12);
+    // 앞에 8 추가한 14자리 → 정규화
+    variants.add(normalizeBarcode('8' + norm));
+    variants.add(normalizeBarcode('18' + suffix12));
+    variants.add(normalizeBarcode('188' + suffix11));
+  }
+
   return [...variants];
 }
 
