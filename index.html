@@ -360,7 +360,7 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:1
       <div style="font-size:13px;font-weight:700">⚠️ 재고주의 품목</div>
       <button onclick="goMode('prod');filterLowStock()" style="font-size:11px;color:var(--accent);background:var(--accent-bg);border:1px solid #ddd6fe;border-radius:6px;padding:4px 10px;cursor:pointer;font-family:var(--sans)">품목 보기</button>
     </div>
-    <div id="dash-low-list" style="padding:8px 0;max-height:calc(100vh - 280px);min-height:320px;overflow-y:auto"></div>
+    <div id="dash-low-list" style="padding:8px 0;max-height:220px;overflow-y:auto"></div>
   </div>
 </div>
 
@@ -454,9 +454,26 @@ let _tt = null;
 // ═══════════════════════════════════════
 function normalizeBarcode(raw) {
   // 숫자와 괄호만 남기고 모두 제거
-  let s = String(raw||'').trim().replace(/[^0-9()]/g, '');
-  // 괄호 제거
-  s = s.replace(/[()]/g, '');
+  let s = String(raw||'').trim();
+
+  // GS1 형식 처리: (01)08806706045527(21)TKM... → 01 필드에서 GTIN 추출
+  // 괄호 있는 GS1-128 형식
+  const gs1Match = s.match(/\(01\)(\d{13,14})/);
+  if (gs1Match) {
+    const gtin = gs1Match[1];
+    // 14자리면 앞 1자리 제거해서 13자리로
+    return gtin.length === 14 ? gtin.slice(1) : gtin;
+  }
+
+  // 괄호 없는 GS1 형식: 01 + 14자리로 시작하는 경우
+  const gs1Raw = s.match(/^01(\d{14})/);
+  if (gs1Raw) {
+    const gtin = gs1Raw[1];
+    return gtin.length === 14 ? gtin.slice(1) : gtin;
+  }
+
+  // 이하 기존 로직
+  s = s.replace(/[^0-9()]/g, '').replace(/[()]/g, '');
   const len = s.length;
   // 16자리: 01 + 14자리 → 뒤 13자리
   if (len === 16 && s.startsWith('01')) return s.slice(3);
@@ -464,6 +481,8 @@ function normalizeBarcode(raw) {
   if (len === 15 && s.startsWith('01')) return s.slice(2);
   // 14자리: 0 + 13자리
   if (len === 14 && s.startsWith('0')) return s.slice(1);
+  // 14자리: 1 + 13자리 (스캐너 오인식 보정)
+  if (len === 14 && s.startsWith('1')) return s.slice(1);
   // 13자리: 그대로
   return s;
 }
@@ -780,6 +799,24 @@ function cropVideoFrame(video) {
 function scanFrame(video) {
   if (!isScanning) return;
 
+  // 연속 확인용 버퍼 (같은 값이 CONFIRM_NEEDED번 나오면 확정)
+  const CONFIRM_NEEDED = 3;
+  const scanBuffer = [];
+
+  function confirmScan(raw) {
+    const norm = normalizeBarcode(raw);
+    scanBuffer.push(norm);
+    if (scanBuffer.length > 6) scanBuffer.shift(); // 최근 6개만 유지
+    // 최근 버퍼에서 같은 값이 CONFIRM_NEEDED번 이상이면 확정
+    const counts = {};
+    for (const v of scanBuffer) counts[v] = (counts[v]||0) + 1;
+    const best = Object.entries(counts).sort((a,b)=>b[1]-a[1])[0];
+    if (best && best[1] >= CONFIRM_NEEDED) {
+      return best[0]; // 확정된 바코드
+    }
+    return null;
+  }
+
   if ('BarcodeDetector' in window) {
     // Android Chrome - BarcodeDetector API
     const detector = new BarcodeDetector({
@@ -792,8 +829,11 @@ function scanFrame(video) {
       if (!canvas) { requestAnimationFrame(detect); return; }
       detector.detect(canvas).then(barcodes => {
         if (barcodes.length > 0) {
-          if (navigator.vibrate) navigator.vibrate(60);
-          closeCam(); addScan(barcodes[0].rawValue, scanMode); return;
+          const confirmed = confirmScan(barcodes[0].rawValue);
+          if (confirmed) {
+            if (navigator.vibrate) navigator.vibrate(60);
+            closeCam(); addScan(confirmed, scanMode); return;
+          }
         }
         requestAnimationFrame(detect);
       }).catch(() => requestAnimationFrame(detect));
@@ -824,9 +864,12 @@ function scanFrame(video) {
       codeReader.decodeFromVideoDevice(null, 'scanner-video', (result, err) => {
         if (!isScanning) return;
         if (result) {
-          if (navigator.vibrate) navigator.vibrate(60);
-          closeCam();
-          addScan(result.getText(), scanMode);
+          const confirmed = confirmScan(result.getText());
+          if (confirmed) {
+            if (navigator.vibrate) navigator.vibrate(60);
+            closeCam();
+            addScan(confirmed, scanMode);
+          }
         }
       });
     } catch(e) {
