@@ -438,6 +438,8 @@ const DEFAULT_URL = 'https://pharmacy-proxy.asteria2hyun.workers.dev';
 let mode='in', scanMode='in', isScanning=false;
 let products  = JSON.parse(localStorage.getItem('phProducts') || '{}');
 let histLog   = JSON.parse(localStorage.getItem('phHistory')  || '[]');
+const HISTORY_DAYS = 7;        // 이력/재고주의를 며칠치 보여줄지 (일주일)
+const HISTORY_MAX  = 1500;     // 보존 한도(바쁜 날에도 일주일치 확보)
 let sheetUrl  = localStorage.getItem('phSheetUrl') || DEFAULT_URL;
 let backData  = JSON.parse(localStorage.getItem('phBackData') || '{}');
 let sheetCache = {}; // 바코드 → 시트 데이터 캐시
@@ -1600,7 +1602,7 @@ async function commitAll(m) {
     histLog.unshift({barcode:item.barcode,name,type:m,
       unitRows:item.unitRows.filter(u=>u.qty>0).map(u=>({display:u.display,qty:u.qty,unitLabel:u.unitLabel,rowIndex:u.rowIndex,prevStockBox:u.stockBox,newStockBox:m==='in'?(u.stockBox+u.qty):(u.stockBox-u.qty)})),
       extraUnits:item.extraUnits||0,time:now.toISOString()});
-    if(histLog.length>300)histLog.pop();
+    if(histLog.length>HISTORY_MAX)histLog.pop();
   }
   localStorage.setItem('phHistory',JSON.stringify(histLog));
 
@@ -1664,14 +1666,25 @@ async function commitAll(m) {
 // ═══════════════════════════════════════
 function renderHistory() {
   const today=new Date().toDateString();
-  let logs=histLog.filter(r=>new Date(r.time).toDateString()===today);
+  const cutoff=Date.now()-HISTORY_DAYS*24*60*60*1000;
+  let logs=histLog.filter(r=>new Date(r.time).getTime()>cutoff);
   if(histFilter) logs=logs.filter(r=>r.type===histFilter);
   const el=document.getElementById('hist-list');
   const filterBadge=document.getElementById('hist-filter-badge');
   if(filterBadge) filterBadge.style.display=histFilter?'flex':'none';
   document.getElementById('hist-count').textContent=logs.length?`(${logs.length}건)`:'';
   if(!logs.length){el.innerHTML=`<div class="empty"><div class="empty-icon">📋</div><div class="empty-text">이력이 없습니다</div></div>`;return;}
-  el.innerHTML=logs.map(r=>{
+
+  // 날짜별 그룹핑 (최신 날짜가 위, 오늘은 '오늘'로 표기)
+  const groups={};
+  logs.forEach(r=>{
+    const d=new Date(r.time);
+    const key=d.toDateString()===today?'오늘':d.toLocaleDateString('ko-KR',{month:'long',day:'numeric',weekday:'short'});
+    if(!groups[key]) groups[key]=[];
+    groups[key].push(r);
+  });
+
+  const itemHtml=r=>{
     const origIdx=histLog.findIndex(x=>x===r);
     const t=new Date(r.time).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'});
     const sign=r.type==='in'?'+':'-';
@@ -1693,7 +1706,12 @@ function renderHistory() {
       <div class="hi-qty ${r.type}" style="text-align:right;line-height:1.8">${unitStr}${extraStr}${stockStr}</div>
       <button class="hist-cancel-btn" onclick="cancelHistory(${origIdx})" title="취소">✕</button>
     </div>`;
-  }).join('');
+  };
+
+  el.innerHTML=Object.entries(groups).map(([date,items])=>`
+    <div style="position:sticky;top:0;z-index:1;padding:6px 14px;background:var(--surface2);font-size:11px;font-weight:700;color:var(--text2);border-bottom:1px solid var(--border)">${date} <span style="color:var(--text3);font-weight:500">${items.length}건</span></div>
+    ${items.map(itemHtml).join('')}
+  `).join('');
 }
 
 async function cancelHistory(idx) {
@@ -1822,7 +1840,7 @@ function renderDashboard() {
   if(!inEl) return;
 
   const today = new Date().toDateString();
-  const week = Date.now() - 7*24*60*60*1000;
+  const week = Date.now() - HISTORY_DAYS*24*60*60*1000;
   const logs = JSON.parse(localStorage.getItem('phHistory') || '[]');
 
   // 1. 오늘 입고/출고 품목수
@@ -1942,7 +1960,7 @@ function renderProducts(query) {
   let items = [...allSheetProducts];
 
   if(prodLowFilter) {
-    const week = Date.now() - 7*24*60*60*1000;
+    const week = Date.now() - HISTORY_DAYS*24*60*60*1000;
     const recentOutNames = new Set(histLog.filter(r=>r.type==='out'&&new Date(r.time).getTime()>week).map(r=>r.name));
     items = items.filter(p=>p.stockBox===0&&recentOutNames.has(p.name));
     if(badge) badge.style.display='flex';
