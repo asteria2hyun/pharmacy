@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-<script src="https://unpkg.com/@zxing/library@0.19.1/umd/index.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/zxing-wasm@3.0.3/dist/iife/reader/index.js"></script>
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
 <title>약국 재고관리</title>
@@ -796,33 +796,60 @@ function closeCam() {
   }
   const video = document.getElementById('scanner-video');
   if (video) { video.srcObject = null; }
-  // ZXing 정리 (iOS)
-  if (window._zxingReader) {
-    try { window._zxingReader.reset(); } catch(e) {}
-    window._zxingReader = null;
-  }
 }
+// 엔진 라우팅: Android=BarcodeDetector(네이티브), iOS=zxing-wasm(C++ WASM).
+// getUserMedia/ROI크롭/confirmScan(보정 두뇌)은 공용, 디코더만 기기별 선택.
 async function startQuagga() {
   if (isScanning) return;
   const video = document.getElementById('scanner-video');
+  const hasNative = 'BarcodeDetector' in window;
+  const hasWasm = (typeof ZXingWASM !== 'undefined') && ZXingWASM.readBarcodes;
+  if (!hasNative && !hasWasm) {
+    showToast('이 기기는 자동 스캔 미지원. 수동 입력 사용', 'warn');
+    return;
+  }
+  resetScanBuffer();
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }
     });
     video.srcObject = stream;
     await video.play();
     isScanning = true;
     zxingReader = stream;
-    scanFrame(video);
+    applyCameraEnhancements(stream);
+    if (hasNative) runDetectorLoop(video);   // Android/Chromium
+    else runWasmLoop(video);                 // iOS Safari 등
   } catch(e) {
     showToast('카메라 접근 실패: ' + e.message, 'err');
     isScanning = false;
   }
 }
 
-// 크롭 캔버스 공용
+// 지원되는 기기에서만 연속 오토포커스 자동 적용 (iOS 등 미지원 시 무시)
+async function applyCameraEnhancements(stream) {
+  try {
+    const track = stream && stream.getVideoTracks && stream.getVideoTracks()[0];
+    if (!track || !track.getCapabilities) return;
+    const caps = track.getCapabilities();
+    const adv = [];
+    if (caps.focusMode && caps.focusMode.includes('continuous')) adv.push({ focusMode: 'continuous' });
+    if (adv.length) await track.applyConstraints({ advanced: adv });
+  } catch(e) { /* 미지원 무시 */ }
+}
+
+// 크롭 캔버스 공용 + 디텍터 재사용
 const _cropCanvas = document.createElement('canvas');
 const _cropCtx = _cropCanvas.getContext('2d');
+let _barcodeDetector = null;
+function getDetector() {
+  if (!_barcodeDetector && 'BarcodeDetector' in window) {
+    _barcodeDetector = new BarcodeDetector({
+      formats: ['ean_13', 'ean_8', 'code_128', 'code_39', 'upc_a', 'upc_e', 'qr_code', 'data_matrix', 'pdf417', 'aztec', 'itf', 'codabar']
+    });
+  }
+  return _barcodeDetector;
+}
 
 function cropVideoFrame(video) {
   const vw = video.videoWidth, vh = video.videoHeight;
@@ -834,105 +861,87 @@ function cropVideoFrame(video) {
   return _cropCanvas;
 }
 
-function scanFrame(video) {
-  if (!isScanning) return;
-
-  // 연속 확인용 버퍼 (같은 값이 CONFIRM_NEEDED번 나오면 확정)
-  const CONFIRM_NEEDED = 3;
-  const scanBuffer = [];
-
-  function confirmScan(raw) {
-    const norm = normalizeBarcode(raw);
-
-    // EAN-13 체크섬 검증
-    let valid = norm;
-    if (norm.length === 13) {
-      if (isValidEAN13(norm)) {
-        valid = norm; // 정방향 유효
+// ── v1 보정 두뇌: EAN-13 체크섬 + 역방향 보정 + 3프레임 연속확인 (그대로 유지) ──
+const CONFIRM_NEEDED = 3;
+let _scanBuffer = [];
+function resetScanBuffer() { _scanBuffer = []; }
+function confirmScan(raw) {
+  const norm = normalizeBarcode(raw);
+  // EAN-13 체크섬 검증
+  let valid = norm;
+  if (norm.length === 13) {
+    if (isValidEAN13(norm)) {
+      valid = norm; // 정방향 유효
+    } else {
+      const reversed = norm.split('').reverse().join('');
+      if (isValidEAN13(reversed)) {
+        valid = reversed; // 역방향 보정
       } else {
-        // 거꾸로 읽혔는지 확인
-        const reversed = norm.split('').reverse().join('');
-        if (isValidEAN13(reversed)) {
-          valid = reversed; // 역방향 보정
-        } else {
-          return null; // 둘 다 무효 → 버퍼에 넣지 않음
-        }
+        return null; // 둘 다 무효 → 버퍼에 넣지 않음
       }
     }
-
-    scanBuffer.push(valid);
-    if (scanBuffer.length > 6) scanBuffer.shift();
-    const counts = {};
-    for (const v of scanBuffer) counts[v] = (counts[v]||0) + 1;
-    const best = Object.entries(counts).sort((a,b)=>b[1]-a[1])[0];
-    if (best && best[1] >= CONFIRM_NEEDED) {
-      return best[0];
-    }
-    return null;
   }
+  _scanBuffer.push(valid);
+  if (_scanBuffer.length > 6) _scanBuffer.shift();
+  const counts = {};
+  for (const v of _scanBuffer) counts[v] = (counts[v]||0) + 1;
+  const best = Object.entries(counts).sort((a,b)=>b[1]-a[1])[0];
+  if (best && best[1] >= CONFIRM_NEEDED) return best[0];
+  return null;
+}
 
-  if ('BarcodeDetector' in window) {
-    // Android Chrome - BarcodeDetector API
-    const detector = new BarcodeDetector({
-      formats: ['ean_13', 'ean_8', 'code_128', 'code_39', 'upc_a', 'upc_e', 'qr_code', 'data_matrix', 'pdf417', 'aztec', 'itf', 'codabar']
-    });
-    function detect() {
-      if (!isScanning) return;
-      if (video.readyState < 2) { requestAnimationFrame(detect); return; }
-      const canvas = cropVideoFrame(video);
-      if (!canvas) { requestAnimationFrame(detect); return; }
-      detector.detect(canvas).then(barcodes => {
-        if (barcodes.length > 0) {
-          const confirmed = confirmScan(barcodes[0].rawValue);
-          if (confirmed) {
-            if (navigator.vibrate) navigator.vibrate(60);
-            closeCam(); addScan(confirmed, scanMode); return;
-          }
+// Android/Chromium - 네이티브 BarcodeDetector 루프 (재사용 + 동시 detect 방지)
+function runDetectorLoop(video) {
+  const detector = getDetector();
+  let busy = false;
+  function detect() {
+    if (!isScanning) return;
+    if (video.readyState < 2 || busy) { requestAnimationFrame(detect); return; }
+    const canvas = cropVideoFrame(video);
+    if (!canvas) { requestAnimationFrame(detect); return; }
+    busy = true;
+    detector.detect(canvas).then(barcodes => {
+      busy = false;
+      if (barcodes.length > 0) {
+        const confirmed = confirmScan(barcodes[0].rawValue);
+        if (confirmed) {
+          if (navigator.vibrate) navigator.vibrate(60);
+          closeCam(); addScan(confirmed, scanMode); return;
         }
-        requestAnimationFrame(detect);
-      }).catch(() => requestAnimationFrame(detect));
-    }
-    detect();
-
-  } else if (window.ZXing) {
-    // iOS Safari - ZXing 웹어셈블리 (QR + 1D 모두 지원)
-    try {
-      const hints = new Map();
-      hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
-        ZXing.BarcodeFormat.EAN_13,
-        ZXing.BarcodeFormat.EAN_8,
-        ZXing.BarcodeFormat.CODE_128,
-        ZXing.BarcodeFormat.CODE_39,
-        ZXing.BarcodeFormat.UPC_A,
-        ZXing.BarcodeFormat.UPC_E,
-        ZXing.BarcodeFormat.ITF,
-        ZXing.BarcodeFormat.CODABAR,
-        ZXing.BarcodeFormat.QR_CODE,
-        ZXing.BarcodeFormat.DATA_MATRIX,
-        ZXing.BarcodeFormat.PDF_417,
-        ZXing.BarcodeFormat.AZTEC
-      ]);
-      hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
-      const codeReader = new ZXing.BrowserMultiFormatReader(hints);
-      window._zxingReader = codeReader;
-      codeReader.decodeFromVideoDevice(null, 'scanner-video', (result, err) => {
-        if (!isScanning) return;
-        if (result) {
-          const confirmed = confirmScan(result.getText());
-          if (confirmed) {
-            if (navigator.vibrate) navigator.vibrate(60);
-            closeCam();
-            addScan(confirmed, scanMode);
-          }
-        }
-      });
-    } catch(e) {
-      showToast('스캐너 오류: ' + e.message, 'err');
-    }
-
-  } else {
-    showToast('이 기기는 자동 스캔 미지원. 수동 입력 사용', 'warn');
+      }
+      requestAnimationFrame(detect);
+    }).catch(() => { busy = false; requestAnimationFrame(detect); });
   }
+  detect();
+}
+
+// iOS Safari 등 - zxing-wasm 루프 (1D/QR/DataMatrix). ROI 프레임을 WASM에 전달
+const _WASM_FORMATS = ['EAN-13','EAN-8','Code128','Code39','UPC-A','UPC-E','ITF','Codabar','QRCode','DataMatrix','PDF417','Aztec'];
+function runWasmLoop(video) {
+  const opts = { formats: _WASM_FORMATS, tryHarder: true, maxNumberOfSymbols: 1 };
+  let busy = false;
+  function detect() {
+    if (!isScanning) return;
+    if (video.readyState < 2 || busy) { requestAnimationFrame(detect); return; }
+    const canvas = cropVideoFrame(video);
+    if (!canvas) { requestAnimationFrame(detect); return; }
+    let imgData;
+    try { imgData = _cropCtx.getImageData(0, 0, canvas.width, canvas.height); }
+    catch(e) { requestAnimationFrame(detect); return; }
+    busy = true;
+    ZXingWASM.readBarcodes(imgData, opts).then(results => {
+      busy = false;
+      if (results && results.length && results[0].text) {
+        const confirmed = confirmScan(results[0].text);
+        if (confirmed) {
+          if (navigator.vibrate) navigator.vibrate(60);
+          closeCam(); addScan(confirmed, scanMode); return;
+        }
+      }
+      requestAnimationFrame(detect);
+    }).catch(() => { busy = false; requestAnimationFrame(detect); });
+  }
+  detect();
 }
 function manualScan(){
   const code=document.getElementById('camManual').value.trim();
