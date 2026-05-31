@@ -393,6 +393,11 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:1
       </div>
       <div class="scan-hint">바코드를 프레임 안에 맞춰주세요</div>
     </div>
+    <div id="zoom-control" style="display:none;position:absolute;left:24px;right:24px;bottom:16px;align-items:center;gap:12px;pointer-events:auto;z-index:5">
+      <span style="color:#fff;font-size:20px;font-weight:800;line-height:1;text-shadow:0 1px 4px rgba(0,0,0,.7);user-select:none">−</span>
+      <input id="zoom-slider" type="range" min="1" max="5" step="0.1" value="1" oninput="onZoomSlider(this.value)" style="flex:1;height:30px;accent-color:#3b82f6;cursor:pointer">
+      <span style="color:#fff;font-size:20px;font-weight:800;line-height:1;text-shadow:0 1px 4px rgba(0,0,0,.7);user-select:none">＋</span>
+    </div>
   </div>
   <div class="cam-mode-badge" id="camBadge"></div>
   <button class="cam-close" onclick="closeCam()">✕</button>
@@ -796,6 +801,10 @@ function closeCam() {
   }
   const video = document.getElementById('scanner-video');
   if (video) { video.srcObject = null; }
+  // 줌 슬라이더 정리
+  _zoomTrack = null;
+  const zc = document.getElementById('zoom-control');
+  if (zc) zc.style.display = 'none';
 }
 // 엔진 라우팅: Android=BarcodeDetector(네이티브), iOS=zxing-wasm(C++ WASM).
 // getUserMedia/ROI크롭/confirmScan(보정 두뇌)은 공용, 디코더만 기기별 선택.
@@ -826,16 +835,43 @@ async function startQuagga() {
   }
 }
 
-// 지원되는 기기에서만 연속 오토포커스 자동 적용 (iOS 등 미지원 시 무시)
+// 지원되는 기기에서만 연속 오토포커스 + 줌 슬라이더 적용 (미지원 시 무시)
+let _zoomTrack = null;
 async function applyCameraEnhancements(stream) {
+  let track, caps;
   try {
-    const track = stream && stream.getVideoTracks && stream.getVideoTracks()[0];
+    track = stream && stream.getVideoTracks && stream.getVideoTracks()[0];
     if (!track || !track.getCapabilities) return;
-    const caps = track.getCapabilities();
+    caps = track.getCapabilities();
     const adv = [];
     if (caps.focusMode && caps.focusMode.includes('continuous')) adv.push({ focusMode: 'continuous' });
     if (adv.length) await track.applyConstraints({ advanced: adv });
   } catch(e) { /* 미지원 무시 */ }
+  setupZoom(track, caps);
+}
+
+// 줌 지원 기기에서만 하단 슬라이더 표시 + 카메라 줌에 연결
+function setupZoom(track, caps) {
+  const zc = document.getElementById('zoom-control');
+  const zs = document.getElementById('zoom-slider');
+  if (!zc || !zs) return;
+  if (track && caps && caps.zoom && typeof caps.zoom.max === 'number' && caps.zoom.max > (caps.zoom.min || 1)) {
+    zs.min  = caps.zoom.min || 1;
+    zs.max  = caps.zoom.max;
+    zs.step = caps.zoom.step || 0.1;
+    let cur = caps.zoom.min || 1;
+    try { const s = track.getSettings && track.getSettings(); if (s && s.zoom) cur = s.zoom; } catch(e){}
+    zs.value = cur;
+    _zoomTrack = track;
+    zc.style.display = 'flex';
+  } else {
+    _zoomTrack = null;
+    zc.style.display = 'none';
+  }
+}
+function onZoomSlider(v) {
+  if (!_zoomTrack) return;
+  try { _zoomTrack.applyConstraints({ advanced: [{ zoom: Number(v) }] }); } catch(e){}
 }
 
 // 크롭 캔버스 공용 + 디텍터 재사용
