@@ -890,7 +890,8 @@ function getDetector() {
 function cropVideoFrame(video) {
   const vw = video.videoWidth, vh = video.videoHeight;
   if (!vw || !vh) return null;
-  const fw = Math.floor(vw * 0.65), fh = Math.floor(vh * 0.35);
+  // ROI를 넓게(가로 92%·세로 60%) 잡아 바코드 좌우 끝(quiet zone)이 잘려 앞자리가 오인식되는 것 방지
+  const fw = Math.floor(vw * 0.92), fh = Math.floor(vh * 0.60);
   const fx = Math.floor((vw - fw) / 2), fy = Math.floor((vh - fh) / 2);
   _cropCanvas.width = fw; _cropCanvas.height = fh;
   _cropCtx.drawImage(video, fx, fy, fw, fh, 0, 0, fw, fh);
