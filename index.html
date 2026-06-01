@@ -897,27 +897,17 @@ function cropVideoFrame(video) {
   return _cropCanvas;
 }
 
-// ── v1 보정 두뇌: EAN-13 체크섬 + 역방향 보정 + 3프레임 연속확인 (그대로 유지) ──
+// ── 3프레임 연속확인 (같은 값 CONFIRM_NEEDED회 나오면 확정) ──
+// 주의: EAN-13 체크섬 '하드 거부'는 제거함. 한국 의약품 박스 바코드는 GTIN-14(앞자리 1)라
+//       13자리로 줄이면 EAN-13 체크섬이 깨져서, 체크섬 거부 시 통째로 안 읽혔음.
+//       오인식 방지는 3프레임 연속확인 + getBarcodeVariants(마스터 매칭)이 담당.
 const CONFIRM_NEEDED = 3;
 let _scanBuffer = [];
 function resetScanBuffer() { _scanBuffer = []; }
 function confirmScan(raw) {
   const norm = normalizeBarcode(raw);
-  // EAN-13 체크섬 검증
-  let valid = norm;
-  if (norm.length === 13) {
-    if (isValidEAN13(norm)) {
-      valid = norm; // 정방향 유효
-    } else {
-      const reversed = norm.split('').reverse().join('');
-      if (isValidEAN13(reversed)) {
-        valid = reversed; // 역방향 보정
-      } else {
-        return null; // 둘 다 무효 → 버퍼에 넣지 않음
-      }
-    }
-  }
-  _scanBuffer.push(valid);
+  if (!norm) return null;
+  _scanBuffer.push(norm);
   if (_scanBuffer.length > 6) _scanBuffer.shift();
   const counts = {};
   for (const v of _scanBuffer) counts[v] = (counts[v]||0) + 1;
