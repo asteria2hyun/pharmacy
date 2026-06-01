@@ -978,6 +978,13 @@ function manualScan(){
 // ═══════════════════════════════════════
 // ADD SCAN (바코드)
 // ═══════════════════════════════════════
+// 바코드 뒷자리 키(마지막 10자리). 앞자리 오인식(188/18/88)이어도 같은 약 판정용.
+// 한국 의약품은 뒤 10자리가 품목 고유 → 충돌 거의 없음. 12자리 미만은 매칭 안 함(안전).
+function barcodeTail(bc) {
+  const d = String(bc || '').replace(/\D/g, '');
+  return d.length >= 12 ? d.slice(-10) : null;
+}
+
 async function addScan(rawBarcode, m) {
   m = m || scanMode;
   // 정규화
@@ -997,8 +1004,9 @@ async function addScan(rawBarcode, m) {
 
 
   const list = m==='in'?pendingIn:pendingOut;
-  // 이미 있으면 첫 단위 +1
-  const existing = list.find(x => variants.includes(x.barcode) || x.barcode === barcode);
+  // 이미 있으면 첫 단위 +1 (뒷자리 같으면 앞자리 오인식이어도 같은 품목으로 합침)
+  const _sTail = barcodeTail(barcode);
+  const existing = list.find(x => variants.includes(x.barcode) || x.barcode === barcode || (_sTail && barcodeTail(x.barcode) === _sTail));
   if (existing) {
     if (existing.unitRows[existing.selectedUnit]) existing.unitRows[existing.selectedUnit].qty++;
     renderPending(m);
@@ -1039,6 +1047,30 @@ async function addScan(rawBarcode, m) {
         });
       memo = cachedAll[0].memo || '';
       break;
+    }
+  }
+
+  // 변형으로 못 찾으면 뒷자리(마지막 10자리)로 매칭 — 앞자리 오인식(188/18/88) 대응
+  // 단, 뒷자리가 일치하는 품목이 "딱 하나"일 때만 적용(오매칭 방지)
+  if (!name) {
+    const tail = barcodeTail(barcode);
+    if (tail) {
+      const tailRows = allSheetProducts.filter(p => p.name && (
+        barcodeTail(p.barcode) === tail ||
+        (p.extraBarcodes && p.extraBarcodes.some(eb => barcodeTail(eb) === tail))
+      ));
+      const uniqNames = [...new Set(tailRows.map(p => p.name))];
+      if (uniqNames.length === 1) {
+        const rows = tailRows.filter(p => p.name === uniqNames[0]);
+        name = rows[0].name;
+        source = 'sheet';
+        foundBarcode = rows[0].barcode;   // 마스터 표준값으로 통일
+        const _seenT = new Set();
+        unitRows = rows
+          .filter(c => { const lb=(c.unitLabel||'').trim(); if(_seenT.has(lb)) return false; _seenT.add(lb); return true; })
+          .map(c => { const u=parseUnit(c.unitLabel||'묶음'); return {rowIndex:c.rowIndex||null, unitLabel:c.unitLabel||'묶음', display:u.display, qty:0, unitQty:u.qty, stockBox:c.stockBox||0, stockUnit:c.stockUnit||0}; });
+        memo = rows[0].memo || '';
+      }
     }
   }
 
