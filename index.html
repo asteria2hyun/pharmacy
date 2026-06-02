@@ -1043,7 +1043,8 @@ async function addScan(rawBarcode, m) {
           const u = parseUnit(cached.unitLabel || '묶음');
           return {rowIndex:cached.rowIndex||null, unitLabel:cached.unitLabel||'묶음',
             display:u.display, qty:0, unitQty:u.qty,
-            stockBox:cached.stockBox||0, stockUnit:cached.stockUnit||0};
+            stockBox:cached.stockBox||0, stockUnit:cached.stockUnit||0,
+            sheetName:cached.sheetName||cached.sheet||'', mainBarcode:cached.barcode||''};
         });
       memo = cachedAll[0].memo || '';
       break;
@@ -1068,7 +1069,7 @@ async function addScan(rawBarcode, m) {
         const _seenT = new Set();
         unitRows = rows
           .filter(c => { const lb=(c.unitLabel||'').trim(); if(_seenT.has(lb)) return false; _seenT.add(lb); return true; })
-          .map(c => { const u=parseUnit(c.unitLabel||'묶음'); return {rowIndex:c.rowIndex||null, unitLabel:c.unitLabel||'묶음', display:u.display, qty:0, unitQty:u.qty, stockBox:c.stockBox||0, stockUnit:c.stockUnit||0}; });
+          .map(c => { const u=parseUnit(c.unitLabel||'묶음'); return {rowIndex:c.rowIndex||null, unitLabel:c.unitLabel||'묶음', display:u.display, qty:0, unitQty:u.qty, stockBox:c.stockBox||0, stockUnit:c.stockUnit||0, sheetName:c.sheetName||c.sheet||'', mainBarcode:c.barcode||''}; });
         memo = rows[0].memo || '';
       }
     }
@@ -1096,7 +1097,8 @@ async function addScan(rawBarcode, m) {
             .map(r => {
               const u = parseUnit(r.unitLabel);
               return {rowIndex:r.rowIndex, unitLabel:r.unitLabel, display:u.display,
-                qty:0, unitQty:u.qty, stockBox:r.stockBox||0, stockUnit:r.stockUnit||0};
+                qty:0, unitQty:u.qty, stockBox:r.stockBox||0, stockUnit:r.stockUnit||0,
+                sheetName:r.sheetName||'', mainBarcode:r.barcode||''};
             });
           // 캐시 저장
           sheetCache[v] = {name, unitRows, memo};
@@ -1227,11 +1229,14 @@ function renderPending(m) {
       const mid = String(item.id);
       return `
       <div style="display:flex;align-items:center;padding:8px 12px;background:var(--surface2);border-radius:10px;margin-bottom:6px;gap:8px">
-        <div style="width:90px;flex-shrink:0">
-          <div style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(u.unitLabel||u.display)}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:12px;font-weight:600;display:flex;align-items:center;gap:5px">
+            <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(u.unitLabel||u.display)}</span>
+            <button onclick="editUnit('${m}','${mid}',${ui})" style="font-size:9px;color:var(--text3);background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:1px 5px;cursor:pointer;font-family:var(--sans);flex-shrink:0">변경</button>
+          </div>
           <div style="font-size:11px;color:${sw?'var(--red)':'var(--text3)'}">재고 ${u.stockBox}개</div>
         </div>
-        <div style="display:flex;align-items:center;flex-shrink:0;margin-left:auto">
+        <div style="display:flex;align-items:center;flex-shrink:0">
           <button class="qs-btn" onclick="adjUnitQtyIdx('${m}','${mid}',${ui},-1)">−</button>
           <input class="qs-val" id="uqty-${mid}-${ui}" type="number" value="${u.qty}" min="0" onchange="setUnitQtyIdx('${m}','${mid}',${ui},this.value)">
           <button class="qs-btn" onclick="adjUnitQtyIdx('${m}','${mid}',${ui},1)">+</button>
@@ -1373,6 +1378,33 @@ async function addUnit(m,id){
   item.selectedUnit=item.unitRows.length-1;
   item.showAddPanel=false; input.value='';
   renderPending(m); showToast(`"${u.display}" 단위 추가됨`,'ok');
+}
+// 단위(예: 20개 1박스) 인라인 변경 — 시트(C열)에도 저장
+async function editUnit(m,id,ui){
+  const l=m==='in'?pendingIn:pendingOut;
+  const item=l.find(x=>String(x.id)===String(id)); if(!item)return;
+  const u=item.unitRows[ui]; if(!u)return;
+  const cur=u.unitLabel||u.display||'';
+  const val=prompt('단위 변경 (예: 20개 1박스, 1통, 30정 1박스)', cur);
+  if(val===null)return;                       // 취소
+  const nv=val.trim(); if(!nv){showToast('단위를 입력하세요','err');return;}
+  const p=parseUnit(nv);
+  u.unitLabel=nv; u.display=p.display; u.unitQty=p.qty;
+  renderPending(m);
+  // 행 정보가 있으면 시트에 영구 저장(다른 칸은 현재값 그대로 보존)
+  if(sheetUrl && u.rowIndex && u.sheetName){
+    showToast('단위 저장 중...','');
+    try{
+      await fetch(sheetUrl,{method:'POST',headers:{'Content-Type':'text/plain'},redirect:'follow',
+        body:JSON.stringify({action:'updateProduct', sheetName:u.sheetName, rowIndex:u.rowIndex,
+          barcode:(u.mainBarcode||item.barcode), name:item.name, unitLabel:nv,
+          stockBox:u.stockBox, stockUnit:u.stockUnit, memo:item.memo||''})});
+      showToast('✅ 단위 변경 저장됨','ok');
+      loadAllProducts();
+    }catch(e){ showToast('저장 실패(이번 건만 적용)','warn'); }
+  } else {
+    showToast('단위 변경됨 (이번 건만)','ok');
+  }
 }
 async function saveMemo(m,id){
   const l=m==='in'?pendingIn:pendingOut;
