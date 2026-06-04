@@ -960,6 +960,13 @@ const _WASM_FORMATS = ['EAN-13','EAN-8','Code128','Code39','UPC-A','UPC-E','ITF'
 function runWasmLoop(video) {
   const opts = { formats: _WASM_FORMATS, tryHarder: true, maxNumberOfSymbols: 1 };
   let busy = false;
+  const tryConfirm = (results) => {
+    if (results && results.length && results[0].text) {
+      const confirmed = confirmScan(results[0].text);
+      if (confirmed) { if (navigator.vibrate) navigator.vibrate(60); closeCam(); addScan(confirmed, scanMode); return true; }
+    }
+    return false;
+  };
   function detect() {
     if (!isScanning) return;
     if (video.readyState < 2 || busy) { requestAnimationFrame(detect); return; }
@@ -970,15 +977,13 @@ function runWasmLoop(video) {
     catch(e) { requestAnimationFrame(detect); return; }
     busy = true;
     ZXingWASM.readBarcodes(imgData, opts).then(results => {
-      busy = false;
-      if (results && results.length && results[0].text) {
-        const confirmed = confirmScan(results[0].text);
-        if (confirmed) {
-          if (navigator.vibrate) navigator.vibrate(60);
-          closeCam(); addScan(confirmed, scanMode); return;
-        }
-      }
-      requestAnimationFrame(detect);
+      if (tryConfirm(results)) { busy = false; return; }
+      // 일반으로 못 읽으면 색 반전해서 한 번 더 (반전 바코드 대응)
+      ZXingWASM.readBarcodes(invertedImageData(canvas), opts).then(r2 => {
+        busy = false;
+        if (tryConfirm(r2)) return;
+        requestAnimationFrame(detect);
+      }).catch(() => { busy = false; requestAnimationFrame(detect); });
     }).catch(() => { busy = false; requestAnimationFrame(detect); });
   }
   detect();
