@@ -318,17 +318,6 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:1
     <input class="url-input" id="urlInput" placeholder="https://script.google.com/macros/s/...">
     <button class="url-save" onclick="saveUrl()">저장</button>
   </div>
-  <div class="sec-label" style="margin-top:8px">백데이터 파일</div>
-  <div class="url-card">
-    <div class="url-card-title">📁 올댓페이 상품 파일</div>
-    <div class="file-upload-area" id="fileUploadArea" onclick="document.getElementById('fileInput').click()">
-      <div class="file-icon">📄</div>
-      <div class="file-text">파일 클릭하여 선택</div>
-      <div class="file-sub">CSV 파일 (바코드, 상품명)</div>
-      <div class="file-status" id="fileStatus"></div>
-    </div>
-    <input type="file" id="fileInput" class="file-input" accept=".csv" onchange="loadBackData(event)">
-  </div>
 </div>
 
 <!-- DASHBOARD -->
@@ -1929,9 +1918,10 @@ function loadBackData(e){
 }
 function updateFileStatus(){
   const count=Object.keys(backData).length;
-  if(count>0){
-    document.getElementById('fileUploadArea').classList.add('has-file');
-    document.getElementById('fileStatus').textContent=`✅ ${count}개 상품 로드됨`;
+  const area=document.getElementById('fileUploadArea'), st=document.getElementById('fileStatus');
+  if(count>0 && area && st){
+    area.classList.add('has-file');
+    st.textContent=`✅ ${count}개 상품 로드됨`;
   }
 }
 
