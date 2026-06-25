@@ -565,6 +565,8 @@ async function loadTodayHistory() {
       const older = histLog.filter(r => new Date(r.time).getTime() < cutoff);
       histLog = [...data.history, ...older];
       localStorage.setItem('phHistory', JSON.stringify(histLog));
+      // 최신 이력 반영 후 대시보드가 떠 있으면 갱신(오늘 입출고·재고주의 날짜)
+      if(document.getElementById('dash-in-count')) renderDashboard();
     }
   } catch(e) {}
 }
@@ -585,6 +587,8 @@ async function loadAllProducts() {
     if (data && data.success && data.products) {
       allSheetProducts = data.products;
       localStorage.setItem('phProductCache', JSON.stringify(data.products));
+      // 최신 재고 반영 후 대시보드가 떠 있으면 재고주의 리스트 갱신
+      if(document.getElementById('dash-in-count')) renderDashboard();
     }
   } catch(e) {
     if (!cacheReady) showToast('⚠ 시트 연결 실패 (로컬 캐시 없음)', 'err');
@@ -1501,11 +1505,11 @@ function openChangeProduct(m, id) {
 function onChangeSearch(query, m, id) {
   const results = document.getElementById('change-search-results');
   if(!results) return;
-  if(!query.trim()) { results.innerHTML=''; return; }
+  const qt = query.trim();
+  if(!qt) { results.innerHTML=''; return; }
   const q = query.toLowerCase();
   const items = allSheetProducts.filter(p=>p.name&&p.name.toLowerCase().includes(q)).slice(0,15);
-  if(!items.length){ results.innerHTML='<div style="padding:12px;font-size:12px;color:var(--text3)">검색 결과 없음</div>'; return; }
-  results.innerHTML = items.map(p=>`
+  const listHtml = items.map(p=>`
     <div onclick="confirmChangeProduct('${m}','${id}','${esc(p.barcode||'')}','${esc(p.name)}')"
       style="padding:10px 12px;cursor:pointer;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center"
       onmouseover="this.style.background='var(--accent-bg)'" onmouseout="this.style.background=''">
@@ -1515,6 +1519,56 @@ function onChangeSearch(query, m, id) {
       </div>
       <div style="font-size:12px;font-weight:700;color:${p.stockBox===0?'var(--red)':'var(--text2)'}">재고 ${p.stockBox}</div>
     </div>`).join('');
+  // 시트에 없는 새 상품으로 등록 (검색어를 상품명으로)
+  const newHtml = `
+    <div onclick="changeToNewProduct('${m}','${id}','${esc(qt)}')"
+      style="padding:11px 12px;cursor:pointer;display:flex;align-items:center;gap:8px;color:var(--accent);font-weight:700;font-size:13px;background:var(--accent-bg);border-radius:8px;margin-top:6px"
+      onmouseover="this.style.filter='brightness(.97)'" onmouseout="this.style.filter=''">
+      <span style="font-size:15px">➕</span>
+      <span>'${escHtml(qt)}'(을)를 새 상품으로 등록</span>
+    </div>`;
+  results.innerHTML = listHtml + newHtml;
+}
+
+// 시트에 없는 새 상품으로 전환 (잘못 매칭된 바코드를 신규 상품에 연결)
+async function changeToNewProduct(m, id, newName) {
+  const l = m==='in'?pendingIn:pendingOut;
+  const item = l.find(x=>String(x.id)===String(id));
+  if(!item) return;
+  newName = (newName||'').trim();
+  if(!newName){ showToast('상품명을 입력하세요','err'); return; }
+
+  const scannedBarcode = item.barcode;
+  const oldName = item.name;
+  const wasSheet = item.source==='sheet' && oldName && oldName.trim();
+
+  document.getElementById('change-prod-modal')?.remove();
+  showToast('새 상품으로 등록 중...', '');
+
+  try {
+    // 기존(잘못 매칭된) 시트 상품에서 스캔된 바코드 제거
+    if(wasSheet && scannedBarcode){
+      await fetch(DEFAULT_URL, {method:'POST', headers:{'Content-Type':'text/plain'},
+        body: JSON.stringify({action:'removeBarcode', targetName:oldName, barcodeToRemove:scannedBarcode})
+      });
+    }
+
+    // 항목을 신규 상품 상태로 전환 — 확정 시 시트에 새 행으로 저장됨
+    item.name = newName;
+    item.barcode = scannedBarcode;
+    item.source = 'new';
+    item.isNew = false;
+    item.unitRows = [{rowIndex:null, unitLabel:'묶음', display:'묶음', qty:1, unitQty:1, stockBox:0, stockUnit:0}];
+    item.selectedUnit = 0;
+    item.extraUnits = 0;
+    item.stockUnit = 0;
+    item.pendingLink = null;
+
+    showToast(`🆕 ${newName} 새 상품으로 등록됨 (확정 시 시트 저장)`, 'ok');
+    renderPending(m);
+  } catch(e) {
+    showToast('등록 실패', 'err');
+  }
 }
 
 async function confirmChangeProduct(m, id, newMainBarcode, newName) {
@@ -2013,7 +2067,10 @@ function renderDashboard() {
             <div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(p.name)}</div>
             <div style="font-size:10px;color:var(--text3);margin-top:2px;font-family:var(--mono)">${escHtml(p.barcode||'바코드없음')}</div>
           </div>
-          <div style="font-size:12px;font-weight:700;color:var(--red)">재고 0</div>
+          <div style="text-align:right;flex-shrink:0;line-height:1.5">
+            <div style="font-size:12px;font-weight:700;color:var(--red)">박스 0</div>
+            <div style="font-size:11px;font-weight:700;color:${(p.stockUnit||0)>0?'var(--text2)':'var(--red)'}">낱개 ${p.stockUnit||0}${(p.stockUnit||0)===0?' · 품절':''}</div>
+          </div>
         </div>`).join('')}
     `).join('');
   }
