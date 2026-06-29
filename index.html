@@ -2019,14 +2019,12 @@ function renderDashboard() {
   inEl.textContent = todayIn.size;
   outEl.textContent = todayOut.size;
 
-  // 2. 재고주의: 최근 7일 출고된 품목 중 현재 재고 0
+  // 2. 재고주의: 완전 품절(박스 0 + 낱개 0) 전부 — 출고이력 무관 (카톡 알림과 동일 기준)
   // allSheetProducts가 로드됐으면 실시간, 아니면 캐시 기반
-  const recentOutNames = new Set(logs.filter(r=>r.type==='out'&&new Date(r.time).getTime()>week).map(r=>r.name));
-
   // 캐시된 재고 정보 활용 (새로고침 후에도 localStorage 캐시 사용)
   const cachedProducts = JSON.parse(localStorage.getItem('phProductCache') || '[]');
   const productsToCheck = allSheetProducts.length > 0 ? allSheetProducts : cachedProducts;
-  const lowItems = productsToCheck.filter(p => p.name && p.stockBox===0 && recentOutNames.has(p.name));
+  const lowItems = productsToCheck.filter(p => p.name && p.stockBox===0 && (p.stockUnit||0)===0);
   lowEl.textContent = lowItems.length;
 
   // 3. 신규품목: 오늘 histLog에서 신규 추가된 것
@@ -2036,11 +2034,7 @@ function renderDashboard() {
   // 재고주의 리스트 - 날짜별 그룹
   const lowList = document.getElementById('dash-low-list');
   if(!lowItems.length){
-    if(recentOutNames.size === 0){
-      lowList.innerHTML='<div style="padding:16px;text-align:center;font-size:12px;color:var(--text3)">최근 7일 출고 기록 없음</div>';
-    } else {
-      lowList.innerHTML='<div style="padding:16px;text-align:center;font-size:12px;color:var(--text3)">재고주의 품목 없음 👍</div>';
-    }
+    lowList.innerHTML='<div style="padding:16px;text-align:center;font-size:12px;color:var(--text3)">완전 품절 품목 없음 👍</div>';
   } else {
     const itemsWithDate = lowItems.map(p => {
       const lastOut = histLog
@@ -2133,9 +2127,7 @@ function renderProducts(query) {
   let items = [...allSheetProducts];
 
   if(prodLowFilter) {
-    const week = Date.now() - HISTORY_DAYS*24*60*60*1000;
-    const recentOutNames = new Set(histLog.filter(r=>r.type==='out'&&new Date(r.time).getTime()>week).map(r=>r.name));
-    items = items.filter(p=>p.stockBox===0&&recentOutNames.has(p.name));
+    items = items.filter(p=>p.stockBox===0&&(p.stockUnit||0)===0);
     if(badge) badge.style.display='flex';
   } else {
     if(badge) badge.style.display='none';
