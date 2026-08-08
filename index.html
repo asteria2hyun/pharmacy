@@ -432,15 +432,17 @@ const DEFAULT_URL = 'https://pharmacy-proxy.asteria2hyun.workers.dev';
 let mode='in', scanMode='in', isScanning=false;
 let products  = JSON.parse(localStorage.getItem('phProducts') || '{}');
 let histLog   = JSON.parse(localStorage.getItem('phHistory')  || '[]');
-const HISTORY_DAYS = 7;        // 이력/재고주의를 며칠치 보여줄지 (일주일)
+const HISTORY_DAYS = 7;        // 이력을 며칠치 보여줄지 (일주일)
+const LOW_STOCK_DAYS = 2;      // 대시보드 재고주의: 최근 며칠 안에 소진된 것만 (누적 방지)
 const HISTORY_MAX  = 1500;     // 보존 한도(바쁜 날에도 일주일치 확보)
 let sheetUrl  = localStorage.getItem('phSheetUrl') || DEFAULT_URL;
 let backData  = JSON.parse(localStorage.getItem('phBackData') || '{}');
-let sheetCache = {}; // 바코드 → 시트 데이터 캐시
 let allSheetProducts = []; // 검색용 전체 상품 목록
 let pendingIn=[], pendingOut=[];
 let searchCursor = {in:-1, out:-1};
 let cacheReady = false;
+let cacheEpoch = 0;   // 로컬 재고를 고칠 때마다 +1 — 뒤늦게 도착한 옛 getAll 응답을 버리는 기준
+let jsonpSeq = 0;     // JSONP 콜백 이름 충돌 방지용 일련번호
 let _tt = null;
 
 
@@ -571,6 +573,33 @@ async function loadTodayHistory() {
   } catch(e) {}
 }
 
+// 상품 목록을 디스크에 저장 (앱을 껐다 켜도 유지되게)
+function saveProductCache() {
+  try { localStorage.setItem('phProductCache', JSON.stringify(allSheetProducts)); } catch(e) {}
+}
+// 로컬 재고 숫자를 고쳤을 때 호출 — 저장 + 비행 중인 옛 getAll 응답 무효화
+function persistProductCache() {
+  cacheEpoch++;
+  saveProductCache();
+}
+
+// 상품 목록 캐시에서 해당 단위 행 찾기.
+// rowIndex는 시트 탭 안에서만 유일하므로 탭 이름까지 함께 봐야 다른 탭의 같은 행을 잘못 잡지 않는다.
+// allowNameOnly는 낱개(상품 단위 값)처럼 행이 특정되지 않아도 되는 경우에만 켠다.
+// 박스 재고에 켜면 새로 추가한 단위가 다른 단위의 재고를 기준값으로 물려받아 망가진다.
+function findCachedRow(u, name, allowNameOnly) {
+  const sn = (u && (u.sheetName || u.sheet)) || '';
+  if (u && u.rowIndex) {
+    const hit = allSheetProducts.find(p =>
+      p.rowIndex === u.rowIndex && (!sn || (p.sheetName||p.sheet||'') === sn));
+    if (hit) return hit;
+  }
+  const label = u && (u.unitLabel || u.display);
+  const byLabel = label && allSheetProducts.find(p => p.name === name && p.unitLabel === label);
+  if (byLabel) return byLabel;
+  return allowNameOnly ? (allSheetProducts.find(p => p.name === name) || null) : null;
+}
+
 async function loadAllProducts() {
   if (!sheetUrl) return;
   // 로컬 캐시 먼저 사용 (즉시 검색 가능)
@@ -582,9 +611,17 @@ async function loadAllProducts() {
     } catch(e) {}
   }
   // 백그라운드에서 최신 데이터 로드
+  const myEpoch = cacheEpoch;   // 요청 출발 시점의 세대
   try {
     const data = await jsonpFetch(`${sheetUrl}?action=getAll`);
     if (data && data.success && data.products) {
+      // 요청이 도는 동안 입출고/취소가 있었으면 이 응답은 그 이전 스냅샷이다.
+      // 그대로 쓰면 방금 반영한 재고가 옛 값으로 되돌아가므로 버리고 잠시 후 다시 받는다.
+      if (myEpoch !== cacheEpoch) {
+        cacheReady = true;
+        setTimeout(loadAllProducts, 3000);
+        return;
+      }
       allSheetProducts = data.products;
       localStorage.setItem('phProductCache', JSON.stringify(data.products));
       // 최신 재고 반영 후 대시보드가 떠 있으면 재고주의 리스트 갱신
@@ -600,7 +637,8 @@ async function loadAllProducts() {
 
 function jsonpFetch(url) {
   return new Promise((resolve, reject) => {
-    const cbName = 'cb_' + Date.now();
+    // 같은 밀리초에 두 요청이 뜨면 이름이 겹쳐 앞 요청의 콜백이 덮어써진다 → 일련번호로 분리
+    const cbName = 'cb_' + Date.now() + '_' + (++jsonpSeq);
     const script = document.createElement('script');
     let settled = false;
 
@@ -1111,8 +1149,13 @@ async function addScan(rawBarcode, m) {
                 qty:0, unitQty:u.qty, stockBox:r.stockBox||0, stockUnit:r.stockUnit||0,
                 sheetName:r.sheetName||'', mainBarcode:r.barcode||''};
             });
-          // 캐시 저장
-          sheetCache[v] = {name, unitRows, memo};
+          // 전체 목록 캐시에 편입 — 안 하면 확정 후 재고 갱신 대상을 못 찾아 화면 재고가 안 맞는다
+          for (const r of data.rows) {
+            const dup = allSheetProducts.some(p =>
+              p.rowIndex === r.rowIndex && (p.sheetName||p.sheet||'') === (r.sheetName||''));
+            if (!dup) allSheetProducts.push(r);
+          }
+          saveProductCache();   // 재고 숫자를 바꾼 게 아니므로 세대는 올리지 않는다
           break;
         }
       } catch(e){}
@@ -1548,7 +1591,7 @@ async function changeToNewProduct(m, id, newName) {
   try {
     // 기존(잘못 매칭된) 시트 상품에서 스캔된 바코드 제거
     if(wasSheet && scannedBarcode){
-      await fetch(DEFAULT_URL, {method:'POST', headers:{'Content-Type':'text/plain'},
+      await fetch(sheetUrl, {method:'POST', headers:{'Content-Type':'text/plain'},
         body: JSON.stringify({action:'removeBarcode', targetName:oldName, barcodeToRemove:scannedBarcode})
       });
     }
@@ -1585,7 +1628,7 @@ async function confirmChangeProduct(m, id, newMainBarcode, newName) {
 
   try {
     // 1. 기존 상품(B상품)에서 스캔된 바코드 삭제
-    await fetch(DEFAULT_URL, {method:'POST', headers:{'Content-Type':'text/plain'},
+    await fetch(sheetUrl, {method:'POST', headers:{'Content-Type':'text/plain'},
       body: JSON.stringify({action:'removeBarcode', targetName:oldName, barcodeToRemove:scannedBarcode})
     });
 
@@ -1593,12 +1636,12 @@ async function confirmChangeProduct(m, id, newMainBarcode, newName) {
     const newProd = allSheetProducts.find(p=>p.barcode===newMainBarcode||p.name===newName);
     const hasMain = newProd?.barcode && newProd.barcode.trim();
     if(!hasMain) {
-      await fetch(DEFAULT_URL, {method:'POST', headers:{'Content-Type':'text/plain'},
+      await fetch(sheetUrl, {method:'POST', headers:{'Content-Type':'text/plain'},
         body: JSON.stringify({action:'setMainBarcode', existingName:newName, newBarcode:scannedBarcode})
       });
       if(newProd) newProd.barcode = scannedBarcode;
     } else {
-      await fetch(DEFAULT_URL, {method:'POST', headers:{'Content-Type':'text/plain'},
+      await fetch(sheetUrl, {method:'POST', headers:{'Content-Type':'text/plain'},
         body: JSON.stringify({action:'addExtraBarcode', existingBarcode:newMainBarcode, newBarcode:scannedBarcode})
       });
       if(newProd?.extraBarcodes) newProd.extraBarcodes.push(scannedBarcode);
@@ -1689,7 +1732,7 @@ function linkToExisting(m, id, existingBarcode, existingName) {
 
     if (!hasMainBarcode) {
       // A열이 비어있으면 → A열에 바코드 저장
-      fetch(DEFAULT_URL, {
+      fetch(sheetUrl, {
         method: 'POST',
         headers: {'Content-Type': 'text/plain'},
         body: JSON.stringify({ action: 'setMainBarcode', existingName, newBarcode, rowIndex: cached?.rowIndex })
@@ -1701,7 +1744,7 @@ function linkToExisting(m, id, existingBarcode, existingName) {
       }).catch(() => {});
     } else if (newBarcode !== existingBarcode) {
       // A열에 다른 바코드가 있으면 → G열에 추가
-      fetch(DEFAULT_URL, {
+      fetch(sheetUrl, {
         method: 'POST',
         headers: {'Content-Type': 'text/plain'},
         body: JSON.stringify({ action: 'addExtraBarcode', existingBarcode, newBarcode })
@@ -1742,10 +1785,18 @@ async function commitAll(m) {
   for(const item of list){
     if(item.isNew&&!item.name.trim()){showToast('상품명을 입력하세요','err');return;}
     if(m==='out'){
+      // 스캔 시점이 아니라 확정하는 지금의 캐시값으로 검사 (그 사이 갱신됐을 수 있음)
+      const nm=item.name.trim();
       for(const u of item.unitRows){
-        if(u.qty>0&&u.stockBox<u.qty){showToast(`⚠ ${item.name}: ${u.display} 재고 부족`,'err');return;}
+        const cp=findCachedRow(u,nm);
+        const have=cp?(cp.stockBox||0):u.stockBox;
+        if(u.qty>0&&have<u.qty){showToast(`⚠ ${item.name}: ${u.display} 재고 부족`,'err');return;}
       }
-      if((item.extraUnits||0)>0&&item.stockUnit<item.extraUnits){showToast(`⚠ ${item.name}: 낱개 재고 부족`,'err');return;}
+      if((item.extraUnits||0)>0){
+        const cu=findCachedRow(item.unitRows[0]||{},nm,true);
+        const haveU=cu?(cu.stockUnit||0):(item.stockUnit||0);
+        if(haveU<item.extraUnits){showToast(`⚠ ${item.name}: 낱개 재고 부족`,'err');return;}
+      }
     }
   }
   const btn=document.getElementById('cb-'+m+'-btn');
@@ -1755,21 +1806,32 @@ async function commitAll(m) {
   const now=new Date(); const records=[];
   for(const item of list){
     const name=item.name.trim();
+    // 시트에 쓰는 값은 증감이 아니라 절대값이다. 스캔 시점 값이 아니라
+    // "확정하는 지금"의 캐시값을 기준으로 계산해야 그 사이 들어온 최신 재고를 덮지 않는다.
+    const baseBoxOf = u => {
+      const cp = findCachedRow(u, name);
+      return cp ? (cp.stockBox||0) : u.stockBox;
+    };
+    const baseUnit = (() => {
+      const cp = findCachedRow(item.unitRows[0]||{}, name, true);  // 낱개는 상품 단위 값
+      return cp ? (cp.stockUnit||0) : (item.stockUnit||0);
+    })();
     for(const u of item.unitRows){
       if(u.qty===0)continue;
-      const newStockBox=m==='in'?u.stockBox+u.qty:u.stockBox-u.qty;
-      records.push({rowIndex:u.rowIndex,barcode:item.barcode,name,unitLabel:u.unitLabel,type:m,
-        qty:u.qty,unitQty:u.unitQty,prevStockBox:u.stockBox,newStockBox,
-        prevStockUnit:item.stockUnit||0,newStockUnit:item.stockUnit||0,time:now.toISOString()});
+      const baseBox=baseBoxOf(u);
+      const newStockBox=m==='in'?baseBox+u.qty:baseBox-u.qty;
+      records.push({rowIndex:u.rowIndex,sheetName:u.sheetName||'',barcode:item.barcode,name,unitLabel:u.unitLabel,type:m,
+        qty:u.qty,unitQty:u.unitQty,prevStockBox:baseBox,newStockBox,
+        prevStockUnit:baseUnit,newStockUnit:baseUnit,time:now.toISOString()});
     }
     if((item.extraUnits||0)>0){
-      const newStockUnit=m==='in'?(item.stockUnit||0)+item.extraUnits:(item.stockUnit||0)-item.extraUnits;
-      records.push({rowIndex:item.unitRows[0]?.rowIndex,barcode:item.barcode,name,unitLabel:'낱개',type:m,
+      const newStockUnit=m==='in'?baseUnit+item.extraUnits:baseUnit-item.extraUnits;
+      records.push({rowIndex:item.unitRows[0]?.rowIndex,sheetName:item.unitRows[0]?.sheetName||'',barcode:item.barcode,name,unitLabel:'낱개',type:m,
         qty:item.extraUnits,unitQty:1,prevStockBox:0,newStockBox:0,
-        prevStockUnit:item.stockUnit||0,newStockUnit,isUnit:true,time:now.toISOString()});
+        prevStockUnit:baseUnit,newStockUnit,isUnit:true,time:now.toISOString()});
     }
     histLog.unshift({barcode:item.barcode,name,type:m,
-      unitRows:item.unitRows.filter(u=>u.qty>0).map(u=>({display:u.display,qty:u.qty,unitLabel:u.unitLabel,rowIndex:u.rowIndex,prevStockBox:u.stockBox,newStockBox:m==='in'?(u.stockBox+u.qty):(u.stockBox-u.qty)})),
+      unitRows:item.unitRows.filter(u=>u.qty>0).map(u=>{const b=baseBoxOf(u);return {display:u.display,qty:u.qty,unitLabel:u.unitLabel,rowIndex:u.rowIndex,sheetName:u.sheetName||'',prevStockBox:b,newStockBox:m==='in'?(b+u.qty):(b-u.qty)};}),
       extraUnits:item.extraUnits||0,time:now.toISOString()});
     if(histLog.length>HISTORY_MAX)histLog.pop();
   }
@@ -1777,14 +1839,13 @@ async function commitAll(m) {
 
   // 로컬 캐시 stockBox/stockUnit 즉시 업데이트 (취소 시 역산 기준값 유지)
   for(const rec of records){
-    if(rec.isUnit){
-      const cp=allSheetProducts.find(p=>p.name===rec.name);
-      if(cp) cp.stockUnit=rec.newStockUnit;
-    } else {
-      const cp=allSheetProducts.find(p=>(rec.rowIndex&&p.rowIndex===rec.rowIndex)||(p.name===rec.name&&p.unitLabel===rec.unitLabel));
-      if(cp) cp.stockBox=rec.newStockBox;
-    }
+    const cp=findCachedRow(rec,rec.name,!!rec.isUnit);
+    if(!cp) continue;
+    if(rec.isUnit) cp.stockUnit=rec.newStockUnit;
+    else cp.stockBox=rec.newStockBox;
   }
+  // 디스크에 저장(앱 재시작 대비) + 비행 중인 옛 목록 응답 무효화
+  persistProductCache();
 
   let sheetOk=false;
   if(sheetUrl){
@@ -1793,7 +1854,6 @@ async function commitAll(m) {
         redirect:'follow',
         body:JSON.stringify({action:'batchUpdate',records})});
       const data=await res.json(); sheetOk=data.success;
-      sheetCache={};
     }catch(e){}
   }
 
@@ -1808,13 +1868,13 @@ async function commitAll(m) {
       if(!item.pendingLink) continue;
       const pl = item.pendingLink;
       if(pl.type === 'setMain'){
-        fetch(DEFAULT_URL,{method:'POST',headers:{'Content-Type':'text/plain'},
+        fetch(sheetUrl,{method:'POST',headers:{'Content-Type':'text/plain'},
           body:JSON.stringify({action:'setMainBarcode',existingName:pl.existingName,newBarcode:pl.newBarcode,rowIndex:pl.rowIndex})
         }).then(r=>r.json()).then(d=>{
           if(d.success){const c=allSheetProducts.find(p=>p.name===pl.existingName);if(c)c.barcode=pl.newBarcode;}
         }).catch(()=>{});
       } else if(pl.type === 'addExtra'){
-        fetch(DEFAULT_URL,{method:'POST',headers:{'Content-Type':'text/plain'},
+        fetch(sheetUrl,{method:'POST',headers:{'Content-Type':'text/plain'},
           body:JSON.stringify({action:'addExtraBarcode',existingBarcode:pl.existingBarcode,newBarcode:pl.newBarcode})
         }).then(r=>r.json()).then(d=>{
           if(d.success){const c=allSheetProducts.find(p=>p.barcode===pl.existingBarcode);if(c){if(!c.extraBarcodes)c.extraBarcodes=[];if(!c.extraBarcodes.includes(pl.newBarcode))c.extraBarcodes.push(pl.newBarcode);}}
@@ -1824,10 +1884,12 @@ async function commitAll(m) {
   }, 0);
   if(m==='in')pendingIn=[];else pendingOut=[];
   renderPending(m);
-  if(document.getElementById('dash-in-count')) renderDashboard();
   showToast(`${m==='in'?'📦입고':'📤출고'} ${cleared.length}개 품목 완료${sheetUrl?(sheetOk?' · 시트반영':' · 로컬저장'):''}`, 'ok');
   // 대시보드 실시간 갱신
   if(document.getElementById('dash-in-count')) renderDashboard();
+  // 시트 반영에 성공했을 때만 최신 목록을 다시 받는다.
+  // 실패(로컬저장)했을 때 받아오면 서버의 옛 값이 방금 입력을 지운다.
+  if(sheetOk) setTimeout(loadAllProducts, 1500);
 }
 
 // ═══════════════════════════════════════
@@ -1897,9 +1959,12 @@ async function cancelHistory(idx) {
       ||matchRows.find(p=>p.unitLabel===u.unitLabel||p.unitLabel===u.display)
       ||matchRows[0];
 
-    // prevStockBox: histLog에 저장된 값 우선 (가장 정확), 없으면 로컬캐시
-    const prevStockBox = (u.prevStockBox !== undefined) ? u.prevStockBox : (matchRow?.stockBox||0);
-    const newStockBox = reverseType==='in' ? prevStockBox+u.qty : Math.max(0, prevStockBox-u.qty);
+    // u.prevStockBox는 "그 거래 직전의 재고" = 되돌릴 목표값 그 자체다.
+    // 여기에 반대 연산을 또 적용하면 이중으로 차감/가산된다(입고3 취소 시 10이 아니라 7이 되던 버그).
+    const prevStockBox = matchRow?.stockBox||0;   // 지금 재고
+    const newStockBox = (u.prevStockBox !== undefined)
+      ? u.prevStockBox
+      : (reverseType==='in' ? prevStockBox+u.qty : Math.max(0, prevStockBox-u.qty));
 
     if(matchRow) matchRow.stockBox = newStockBox; // 로컬캐시 즉시 반영
     records.push({
@@ -1938,7 +2003,7 @@ async function cancelHistory(idx) {
   }
   showToast(`✅ ${r.name} ${r.type==='in'?'입고':'출고'} 취소 완료`,'ok');
   renderHistory();
-  buildLocalCache();
+  persistProductCache();   // 이전엔 정의도 없는 buildLocalCache()를 불러 아래 대시보드 갱신이 실행되지 않았다
   if(document.getElementById('dash-in-count')) renderDashboard();
 }
 
@@ -2010,7 +2075,6 @@ function renderDashboard() {
   if(!inEl) return;
 
   const today = new Date().toDateString();
-  const week = Date.now() - HISTORY_DAYS*24*60*60*1000;
   const logs = JSON.parse(localStorage.getItem('phHistory') || '[]');
 
   // 1. 오늘 입고/출고 품목수
@@ -2019,12 +2083,22 @@ function renderDashboard() {
   inEl.textContent = todayIn.size;
   outEl.textContent = todayOut.size;
 
-  // 2. 재고주의: 완전 품절(박스 0 + 낱개 0) 전부 — 출고이력 무관 (카톡 알림과 동일 기준)
+  // 2. 재고주의: 완전 품절(박스 0 + 낱개 0) 중 "최근 LOW_STOCK_DAYS일 안에 출고된 것"만.
+  //    예전에 소진된 품목까지 다 세면 숫자가 계속 누적되기만 해서 최근 것만 남긴다.
   // allSheetProducts가 로드됐으면 실시간, 아니면 캐시 기반
-  // 캐시된 재고 정보 활용 (새로고침 후에도 localStorage 캐시 사용)
   const cachedProducts = JSON.parse(localStorage.getItem('phProductCache') || '[]');
   const productsToCheck = allSheetProducts.length > 0 ? allSheetProducts : cachedProducts;
-  const lowItems = productsToCheck.filter(p => p.name && p.stockBox===0 && (p.stockUnit||0)===0);
+  const lowCutoff = Date.now() - LOW_STOCK_DAYS*24*60*60*1000;
+  const lowItems = productsToCheck
+    .filter(p => p.name && p.stockBox===0 && (p.stockUnit||0)===0)
+    .map(p => {
+      const lastOut = logs
+        .filter(r => r.type==='out' && r.name===p.name)
+        .sort((a,b) => new Date(b.time)-new Date(a.time))[0];
+      return { ...p, lastOutDate: lastOut ? new Date(lastOut.time) : null };
+    })
+    .filter(p => p.lastOutDate && p.lastOutDate.getTime() > lowCutoff)
+    .sort((a,b) => b.lastOutDate - a.lastOutDate);
   lowEl.textContent = lowItems.length;
 
   // 3. 신규품목: 오늘 histLog에서 신규 추가된 것
@@ -2034,21 +2108,12 @@ function renderDashboard() {
   // 재고주의 리스트 - 날짜별 그룹
   const lowList = document.getElementById('dash-low-list');
   if(!lowItems.length){
-    lowList.innerHTML='<div style="padding:16px;text-align:center;font-size:12px;color:var(--text3)">완전 품절 품목 없음 👍</div>';
+    lowList.innerHTML=`<div style="padding:16px;text-align:center;font-size:12px;color:var(--text3)">최근 ${LOW_STOCK_DAYS}일 내 소진된 품목 없음 👍</div>`;
   } else {
-    const itemsWithDate = lowItems.map(p => {
-      const lastOut = histLog
-        .filter(r => r.type==='out' && r.name===p.name && new Date(r.time).getTime()>week)
-        .sort((a,b) => new Date(b.time)-new Date(a.time))[0];
-      return { ...p, lastOutDate: lastOut ? new Date(lastOut.time) : null };
-    }).sort((a,b) => (b.lastOutDate||0) - (a.lastOutDate||0));
-
-    // 날짜별 그룹핑
+    // 날짜별 그룹핑 (lowItems는 이미 최신 출고순으로 정렬돼 있음)
     const groups = {};
-    itemsWithDate.forEach(p => {
-      const dateKey = p.lastOutDate
-        ? p.lastOutDate.toLocaleDateString('ko-KR',{month:'long',day:'numeric',weekday:'short'})
-        : '날짜 미상';
+    lowItems.forEach(p => {
+      const dateKey = p.lastOutDate.toLocaleDateString('ko-KR',{month:'long',day:'numeric',weekday:'short'});
       if(!groups[dateKey]) groups[dateKey] = [];
       groups[dateKey].push(p);
     });
@@ -2211,7 +2276,7 @@ async function saveProdEdit(barcode, name) {
   const newMemo = document.getElementById('edit-memo').value.trim();
   if(!newName){showToast('상품명을 입력하세요','err');return;}
   try{
-    const res = await fetch(DEFAULT_URL,{method:'POST',headers:{'Content-Type':'text/plain'},
+    const res = await fetch(sheetUrl,{method:'POST',headers:{'Content-Type':'text/plain'},
       body:JSON.stringify({action:'updateProduct',rowIndex:p.rowIndex,
         sheetName:p.sheetName||p.sheet||'',
         name:newName,barcode:newBarcode,unitLabel:newUnit,
@@ -2220,6 +2285,7 @@ async function saveProdEdit(barcode, name) {
     if(d.success){
       p.name=newName; p.barcode=newBarcode; p.unitLabel=newUnit;
       p.stockBox=newStockBox; p.stockUnit=newStockUnit; p.memo=newMemo;
+      persistProductCache();
       document.getElementById('prod-edit-modal').remove();
       showToast('✅ 저장됨','ok');
       renderProducts(document.getElementById('prod-search')?.value||'');
